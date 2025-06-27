@@ -171,6 +171,22 @@ impl CodeGenerator {
         let component_name = format_ident!("{}", template.name);
         let props_name = format_ident!("{}Props", template.name);
 
+        // Find the component definition for prop bindings
+        let component = self
+            .file
+            .components
+            .iter()
+            .find(|c| c.name == template.name)
+            .ok_or_else(|| {
+                RuitlError::codegen(format!(
+                    "No component definition found for template '{}'",
+                    template.name
+                ))
+            })?;
+
+        // Generate prop bindings for local access
+        let prop_bindings = self.generate_prop_bindings(component)?;
+
         // Generate the render method body
         let render_body = self.generate_ast_code(&template.body)?;
 
@@ -180,6 +196,7 @@ impl CodeGenerator {
                 type Props = #props_name;
 
                 fn render(&self, props: &Self::Props, context: &ruitl::component::ComponentContext) -> ruitl::error::Result<ruitl::html::Html> {
+                    #prop_bindings
                     Ok(#render_body)
                 }
             }
@@ -222,8 +239,9 @@ impl CodeGenerator {
             }
 
             TemplateAst::Expression(expr) => {
-                let expr: Expr = parse_str(expr).map_err(|e| {
-                    RuitlError::codegen(format!("Invalid expression '{}': {}", expr, e))
+                let transformed_expr = self.transform_variable_access(expr);
+                let expr: Expr = parse_str(&transformed_expr).map_err(|e| {
+                    RuitlError::codegen(format!("Invalid expression '{}': {}", transformed_expr, e))
                 })?;
                 Ok(quote! { ruitl::html::Html::text(&format!("{}", #expr)) })
             }
@@ -331,8 +349,12 @@ impl CodeGenerator {
         then_branch: &TemplateAst,
         else_branch: &Option<Box<TemplateAst>>,
     ) -> Result<TokenStream> {
-        let condition: Expr = parse_str(condition).map_err(|e| {
-            RuitlError::codegen(format!("Invalid if condition '{}': {}", condition, e))
+        let transformed_condition = self.transform_variable_access(condition);
+        let condition: Expr = parse_str(&transformed_condition).map_err(|e| {
+            RuitlError::codegen(format!(
+                "Invalid if condition '{}': {}",
+                transformed_condition, e
+            ))
         })?;
 
         let then_code = self.generate_ast_code(then_branch)?;
@@ -365,8 +387,12 @@ impl CodeGenerator {
         body: &TemplateAst,
     ) -> Result<TokenStream> {
         let var_name = format_ident!("{}", variable);
-        let iterable: Expr = parse_str(iterable).map_err(|e| {
-            RuitlError::codegen(format!("Invalid for iterable '{}': {}", iterable, e))
+        let transformed_iterable = self.transform_variable_access(iterable);
+        let iterable: Expr = parse_str(&transformed_iterable).map_err(|e| {
+            RuitlError::codegen(format!(
+                "Invalid for iterable '{}': {}",
+                transformed_iterable, e
+            ))
         })?;
 
         let body_code = self.generate_ast_code(body)?;
@@ -376,7 +402,7 @@ impl CodeGenerator {
                 #iterable
                     .into_iter()
                     .map(|#var_name| #body_code)
-                    .collect()
+                    .collect::<Vec<_>>()
             )
         })
     }
@@ -406,13 +432,67 @@ impl CodeGenerator {
     }
 
     /// Generate code for component invocation
+    /// Generate local bindings for props with proper Option handling
+    fn generate_prop_bindings(&self, component: &ComponentDef) -> Result<TokenStream> {
+        let mut bindings = Vec::new();
+
+        for prop in &component.props {
+            let prop_name = format_ident!("{}", prop.name);
+
+            // For primitive types, copy the value; for complex types, use reference
+            if self.is_primitive_type(&prop.prop_type) {
+                bindings.push(quote! {
+                    let #prop_name = props.#prop_name;
+                });
+            } else {
+                bindings.push(quote! {
+                    let #prop_name = &props.#prop_name;
+                });
+            }
+        }
+
+        Ok(quote! {
+            #(#bindings)*
+        })
+    }
+
+    /// Check if a type is primitive and should be copied rather than referenced
+    fn is_primitive_type(&self, type_name: &str) -> bool {
+        matches!(
+            type_name.trim(),
+            "bool"
+                | "u8"
+                | "u16"
+                | "u32"
+                | "u64"
+                | "u128"
+                | "usize"
+                | "i8"
+                | "i16"
+                | "i32"
+                | "i64"
+                | "i128"
+                | "isize"
+                | "f32"
+                | "f64"
+                | "char"
+        )
+    }
+
+    /// Transform variable access - now variables are local bindings
+    fn transform_variable_access(&self, expr: &str) -> String {
+        // Since we now have local bindings, no transformation needed
+        // Variables can be used directly
+        expr.to_string()
+    }
+
     fn generate_component_invocation_code(
         &self,
-        component_name: &str,
+        name: &str,
         props: &[PropValue],
     ) -> Result<TokenStream> {
-        let component_ident = format_ident!("{}", component_name);
-        let props_ident = format_ident!("{}Props", component_name);
+        let component_ident = format_ident!("{}", name);
+        let props_ident = format_ident!("{}Props", name);
 
         let mut prop_assignments = Vec::new();
 

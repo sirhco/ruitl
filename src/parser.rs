@@ -269,7 +269,6 @@ impl RuitlParser {
         if self.match_char('=') {
             self.skip_whitespace();
             default_value = Some(self.parse_expression_until(&[',', '\n', '}'])?);
-            optional = true;
         } else if self.match_char('?') {
             optional = true;
         }

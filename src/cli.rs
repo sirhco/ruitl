@@ -84,64 +84,90 @@ impl CliApp {
         use crate::parser::RuitlParser;
         use walkdir::WalkDir;
 
+        // Validate input directory
+        if !src_dir.exists() {
+            return Err(RuitlError::config(format!(
+                "Source directory '{}' does not exist",
+                src_dir.display()
+            )));
+        }
+
         self.log_info("Compiling RUITL templates...");
 
         let compile_fn = || async {
             let mut templates_compiled = 0;
+            let mut component_names = Vec::new();
+            let mut errors = Vec::new();
 
             // Create output directory if it doesn't exist
             if !out_dir.exists() {
-                fs::create_dir_all(out_dir)?;
+                fs::create_dir_all(out_dir).map_err(|e| {
+                    RuitlError::config(format!(
+                        "Failed to create output directory '{}': {}",
+                        out_dir.display(),
+                        e
+                    ))
+                })?;
             }
 
             // Find all .ruitl files
             for entry in WalkDir::new(src_dir) {
-                let entry = entry?;
+                let entry = match entry {
+                    Ok(entry) => entry,
+                    Err(e) => {
+                        errors.push(format!("Failed to read directory entry: {}", e));
+                        continue;
+                    }
+                };
                 let path = entry.path();
 
                 if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("ruitl") {
-                    // Read template file
-                    let content = fs::read_to_string(path)?;
+                    match self.compile_single_template(path, src_dir, out_dir) {
+                        Ok(component_name) => {
+                            templates_compiled += 1;
+                            component_names.push(component_name);
 
-                    // Parse template
-                    let mut parser = RuitlParser::new(content);
-                    let ruitl_ast = parser.parse().map_err(|e| {
-                        RuitlError::generic(format!("Failed to parse {}: {}", path.display(), e))
-                    })?;
+                            if self.verbose {
+                                let relative_path = path.strip_prefix(src_dir).unwrap_or(path);
+                                let mut rust_file = out_dir.join(relative_path);
+                                rust_file.set_extension("rs");
 
-                    // Generate Rust code
-                    let mut generator = CodeGenerator::new(ruitl_ast);
-                    let rust_code = generator.generate().map_err(|e| {
-                        RuitlError::generic(format!(
-                            "Failed to generate code for {}: {}",
-                            path.display(),
-                            e
-                        ))
-                    })?;
-
-                    // Write generated file
-                    let relative_path = path.strip_prefix(src_dir).unwrap_or(path);
-                    let mut rust_file = out_dir.join(relative_path);
-                    rust_file.set_extension("rs");
-
-                    if let Some(parent) = rust_file.parent() {
-                        fs::create_dir_all(parent)?;
-                    }
-
-                    fs::write(&rust_file, rust_code.to_string())?;
-                    templates_compiled += 1;
-
-                    if self.verbose {
-                        self.log_info(&format!(
-                            "Compiled {} -> {}",
-                            path.display().to_string().bright_blue(),
-                            rust_file.display().to_string().green()
-                        ));
+                                self.log_info(&format!(
+                                    "Compiled {} -> {}",
+                                    path.display().to_string().bright_blue(),
+                                    rust_file.display().to_string().green()
+                                ));
+                            }
+                        }
+                        Err(e) => {
+                            errors.push(format!("Failed to compile {}: {}", path.display(), e));
+                        }
                     }
                 }
             }
 
+            // Generate mod.rs file
+            if templates_compiled > 0 {
+                self.generate_mod_file(out_dir, &component_names)?;
+            }
+
+            // Report results
+            if !errors.is_empty() {
+                self.log_error("Compilation completed with errors:");
+                for error in &errors {
+                    self.log_error(&format!("  • {}", error));
+                }
+
+                if templates_compiled == 0 {
+                    return Err(RuitlError::generic("No templates compiled successfully"));
+                }
+            }
+
             self.log_success(&format!("✓ Compiled {} templates", templates_compiled));
+            if !errors.is_empty() {
+                self.log_info(&format!("⚠ {} errors encountered", errors.len()));
+            }
+
             Ok::<(), RuitlError>(())
         };
 
@@ -152,6 +178,177 @@ impl CliApp {
             self.log_info("Watch mode not yet implemented, compiled once");
         } else {
             compile_fn().await?;
+        }
+
+        Ok(())
+    }
+
+    /// Compile a single template file
+    fn compile_single_template(
+        &self,
+        template_path: &Path,
+        src_dir: &Path,
+        out_dir: &Path,
+    ) -> Result<String> {
+        use crate::codegen::CodeGenerator;
+        use crate::parser::RuitlParser;
+
+        // Read template file
+        let content = fs::read_to_string(template_path).map_err(|e| {
+            RuitlError::config(format!(
+                "Failed to read template file '{}': {}",
+                template_path.display(),
+                e
+            ))
+        })?;
+
+        // Parse template
+        let mut parser = RuitlParser::new(content);
+        let ruitl_ast = parser.parse().map_err(|e| {
+            RuitlError::template(format!(
+                "Failed to parse {}: {}",
+                template_path.display(),
+                e
+            ))
+        })?;
+
+        // Extract component name for mod.rs
+        let component_name = if let Some(component) = ruitl_ast.components.first() {
+            component.name.clone()
+        } else {
+            template_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("Unknown")
+                .to_string()
+        };
+
+        // Generate Rust code
+        let mut generator = CodeGenerator::new(ruitl_ast);
+        let rust_code = generator.generate().map_err(|e| {
+            RuitlError::codegen(format!(
+                "Failed to generate code for {}: {}",
+                template_path.display(),
+                e
+            ))
+        })?;
+
+        // Format the generated code
+        let formatted_code = self.format_generated_code(&rust_code.to_string())?;
+
+        // Write generated file
+        let relative_path = template_path.strip_prefix(src_dir).unwrap_or(template_path);
+        let mut rust_file = out_dir.join(relative_path);
+        rust_file.set_extension("rs");
+
+        if let Some(parent) = rust_file.parent() {
+            fs::create_dir_all(parent).map_err(|e| {
+                RuitlError::config(format!(
+                    "Failed to create directory '{}': {}",
+                    parent.display(),
+                    e
+                ))
+            })?;
+        }
+
+        fs::write(&rust_file, formatted_code).map_err(|e| {
+            RuitlError::config(format!(
+                "Failed to write generated file '{}': {}",
+                rust_file.display(),
+                e
+            ))
+        })?;
+
+        Ok(component_name)
+    }
+
+    /// Format generated Rust code for better readability
+    fn format_generated_code(&self, code: &str) -> Result<String> {
+        // Basic formatting improvements
+        let formatted = code
+            .replace(" ; ", ";\n")
+            .replace(" { ", " {\n    ")
+            .replace(" } ", "\n}\n")
+            .replace(" . ", ".\n    ");
+
+        // Try to use rustfmt if available, otherwise return basic formatting
+        match std::process::Command::new("rustfmt")
+            .arg("--emit=stdout")
+            .arg("--edition=2021")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+        {
+            Ok(mut child) => {
+                if let Some(stdin) = child.stdin.take() {
+                    use std::io::Write;
+                    let mut stdin = stdin;
+                    let _ = stdin.write_all(formatted.as_bytes());
+                    drop(stdin);
+                }
+
+                match child.wait_with_output() {
+                    Ok(output) if output.status.success() => {
+                        return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+                    }
+                    _ => {
+                        if self.verbose {
+                            self.log_info("rustfmt not available, using basic formatting");
+                        }
+                    }
+                }
+            }
+            Err(_) => {
+                if self.verbose {
+                    self.log_info("rustfmt not found, using basic formatting");
+                }
+            }
+        }
+
+        Ok(formatted)
+    }
+
+    /// Generate a mod.rs file for the compiled templates
+    fn generate_mod_file(&self, out_dir: &Path, component_names: &[String]) -> Result<()> {
+        let mod_file = out_dir.join("mod.rs");
+
+        let mut content = String::new();
+        content.push_str("//! Generated RUITL components\n");
+        content.push_str("//! This file is automatically generated by RUITL CLI\n");
+        content.push_str("//! DO NOT EDIT MANUALLY\n\n");
+
+        // Add module declarations
+        for name in component_names {
+            let module_name = name.to_lowercase();
+            content.push_str(&format!("pub mod {};\n", module_name));
+        }
+
+        content.push('\n');
+
+        // Add re-exports
+        content.push_str("// Re-exports for convenience\n");
+        for name in component_names {
+            let module_name = name.to_lowercase();
+            content.push_str(&format!(
+                "pub use {}::{{{}, {}Props}};\n",
+                module_name, name, name
+            ));
+        }
+
+        fs::write(&mod_file, content).map_err(|e| {
+            RuitlError::config(format!(
+                "Failed to write mod.rs file '{}': {}",
+                mod_file.display(),
+                e
+            ))
+        })?;
+
+        if self.verbose {
+            self.log_info(&format!(
+                "Generated module file: {}",
+                mod_file.display().to_string().green()
+            ));
         }
 
         Ok(())
@@ -172,6 +369,11 @@ impl CliApp {
     /// Log an error message
     fn log_error(&self, message: &str) {
         eprintln!("{} {}", "error:".bright_red().bold(), message);
+    }
+
+    /// Log a warning message
+    fn log_warning(&self, message: &str) {
+        println!("{} {}", "warning:".bright_yellow().bold(), message);
     }
 }
 
