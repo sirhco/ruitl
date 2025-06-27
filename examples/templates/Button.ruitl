@@ -1,0 +1,35 @@
+// RUITL Button Component
+// This demonstrates the RUITL template syntax with props, conditionals, and expressions
+
+import "std::collections" { HashMap }
+
+component Button {
+    props {
+        text: String,
+        variant: String = "primary",
+        size: String = "medium",
+        disabled: bool = false,
+        icon: String?,
+        loading: bool = false,
+        onclick: String?,
+    }
+}
+
+ruitl Button(props: ButtonProps) {
+    <button
+        class={format!("btn btn-{} btn-{}", props.variant, props.size)}
+        disabled?={props.disabled || props.loading}
+        onclick={props.onclick.unwrap_or_default()}
+        type="button"
+    >
+        if props.loading {
+            <span class="spinner" aria-hidden="true"></span>
+            <span class="sr-only">Loading...</span>
+        } else {
+            if let Some(icon) = props.icon {
+                <i class={format!("icon icon-{}", icon)} aria-hidden="true"></i>
+            }
+            <span class="btn-text">{props.text}</span>
+        }
+    </button>
+}

@@ -1,0 +1,21 @@
+// UserCard.ruitl - A simple user card component
+
+component UserCard {
+    props {
+        name: String,
+        email: String,
+        role: String = "user",
+    }
+}
+
+ruitl UserCard(name: String, email: String, role: String) {
+    <div class="user-card">
+        <div class="user-header">
+            <h3 class="user-name">{name}</h3>
+            <span class="user-role">{role}</span>
+        </div>
+        <div class="user-contact">
+            <p class="user-email">{email}</p>
+        </div>
+    </div>
+}
