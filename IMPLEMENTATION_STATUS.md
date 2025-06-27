@@ -56,20 +56,102 @@ ruitl Button(text: String, variant: String) {
 
 **Generated Code Example:**
 ```rust
+use ruitl::html::*;
+use ruitl::prelude::*;
+use std::collections::HashMap;
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ButtonProps {
     pub text: String,
-    pub variant: String, // default: "primary"
+    pub variant: String,
 }
 
-impl Component for Button {
+impl ruitl::component::ComponentProps for ButtonProps {
+    fn validate(&self) -> ruitl::error::Result<()> {
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct Button;
+
+impl ruitl::component::Component for Button {
     type Props = ButtonProps;
-    fn render(&self, props: &Self::Props, context: &ComponentContext) -> Result<Html> {
-        Ok(html! {
-            <button class={format!("btn btn-{}", variant)} type="button">
-                {text}
-            </button>
-        })
+    fn render(
+        &self,
+        props: &Self::Props,
+        context: &ruitl::component::ComponentContext,
+    ) -> ruitl::error::Result<ruitl::html::Html> {
+        let text = &props.text;
+        let variant = &props.variant;
+        Ok(ruitl::html::Html::Element(
+            ruitl::html::HtmlElement::new("button")
+                .attr("class", &format!("btn btn-{}", variant))
+                .attr("type", "button")
+                .child(ruitl::html::Html::text(&format!("{}", text))),
+        ))
+    }
+}
+```
+
+**Advanced Template Features Example (Conditional Rendering):**
+
+Template syntax:
+```ruitl
+component SimpleIf {
+    props {
+        show_message: bool,
+    }
+}
+
+ruitl SimpleIf(show_message: bool) {
+    <div>
+        {if show_message {
+            <p>Hello World!</p>
+        } else {
+            <p>No message to show</p>
+        }}
+    </div>
+}
+```
+
+Generated code:
+```rust
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SimpleIfProps {
+    pub show_message: bool,
+}
+
+impl ruitl::component::ComponentProps for SimpleIfProps {
+    fn validate(&self) -> ruitl::error::Result<()> {
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct SimpleIf;
+
+impl ruitl::component::Component for SimpleIf {
+    type Props = SimpleIfProps;
+    fn render(
+        &self,
+        props: &Self::Props,
+        context: &ruitl::component::ComponentContext,
+    ) -> ruitl::error::Result<ruitl::html::Html> {
+        let show_message = props.show_message; // Note: primitive types copied, not referenced
+        Ok(ruitl::html::Html::Element(
+            ruitl::html::HtmlElement::new("div").child(if show_message {
+                ruitl::html::Html::Element(
+                    ruitl::html::HtmlElement::new("p")
+                        .child(ruitl::html::Html::text("Hello World!")),
+                )
+            } else {
+                ruitl::html::Html::Element(
+                    ruitl::html::HtmlElement::new("p")
+                        .child(ruitl::html::Html::text("No message to show")),
+                )
+            }),
+        ))
     }
 }
 ```
@@ -87,6 +169,141 @@ impl Component for Button {
 - Context-aware rendering
 - HTML generation with proper escaping
 - Error handling and validation
+
+### 6. Browser Rendering Pipeline
+- **Status:** ✅ **Fully Functional**
+- Generated components produce standard HTML strings
+- Multiple deployment strategies supported
+- Integration with HTTP servers and frameworks
+- Static site generation capabilities
+
+**HTML Output Examples:**
+
+*Basic Button Component:*
+```html
+<!-- Generated from Button component with different variants -->
+<button class="button primary" type="button">Primary Button</button>
+<button class="button secondary" type="button">Secondary Button</button>
+<a class="button success" href="https://github.com/ruitl/ruitl">Success Link</a>
+```
+
+*Conditional Rendering Output:*
+```html
+<!-- UserCard with is_active: true -->
+<div class="card">
+    <h3>👤 Alice Johnson</h3>
+    <p>📧 alice@company.com</p>
+    <p>🔖 Role: Admin</p>
+    <p><span style="color: #28a745; font-weight: bold;">● Status: Active</span></p>
+</div>
+
+<!-- UserCard with is_active: false -->
+<div class="card">
+    <h3>👤 Bob Smith</h3>
+    <p>📧 bob@company.com</p>
+    <p>🔖 Role: User</p>
+    <p><span style="color: #6c757d; font-weight: bold;">● Status: Inactive</span></p>
+</div>
+```
+
+*Complete Page Output:*
+```html
+<html>
+<head>
+    <title>RUITL Demo</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .button { background: #007bff; color: white; padding: 10px 20px; border: none; }
+        .card { border: 1px solid #ddd; padding: 20px; margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>RUITL Components Demo</h1>
+        <p class="meta">Generated server-side with type-safe components</p>
+        <!-- Components seamlessly composed together -->
+        <button class="button primary" type="button">Click Me</button>
+        <div class="card">
+            <h3>👤 User Name</h3>
+            <p>📧 user@example.com</p>
+        </div>
+    </div>
+</body>
+</html>
+```
+
+**Rendering Strategies:**
+
+1. **HTTP Server Integration**
+```rust
+use hyper::{Body, Request, Response, Server, service::{make_service_fn, service_fn}};
+
+async fn serve_component() -> Response<Body> {
+    let component = Button;
+    let props = ButtonProps {
+        text: "Click Me!".to_string(),
+        variant: "primary".to_string(),
+    };
+    let context = ComponentContext::new();
+    
+    let html = component.render(&props, &context).unwrap();
+    let body = format!("<!DOCTYPE html><html><body>{}</body></html>", html.render());
+    
+    Response::new(Body::from(body))
+}
+```
+
+2. **Static Site Generation**
+```rust
+fn generate_static_page() -> std::io::Result<()> {
+    let components = vec![
+        (Hello, HelloProps { name: "World".to_string() }),
+        (Button, ButtonProps { text: "Submit".to_string(), variant: "success".to_string() }),
+    ];
+    
+    let mut page_html = String::from("<!DOCTYPE html><html><head><title>My App</title></head><body>");
+    
+    for (component, props) in components {
+        let context = ComponentContext::new();
+        let html = component.render(&props, &context).unwrap();
+        page_html.push_str(&html.render());
+    }
+    
+    page_html.push_str("</body></html>");
+    std::fs::write("dist/index.html", page_html)
+}
+```
+
+3. **Framework Integration (Axum Example)**
+```rust
+use axum::{response::Html, routing::get, Router};
+
+async fn index() -> Html<String> {
+    let page = build_page_with_components().await;
+    Html(page)
+}
+
+fn app() -> Router {
+    Router::new().route("/", get(index))
+}
+```
+
+**Performance Characteristics:**
+- Zero runtime template parsing overhead
+- Compiled Rust performance for HTML generation
+- Memory-efficient string building
+- Proper HTML escaping built-in
+- Cacheable static output
+
+**Live Demo Generation:**
+Run `cargo run --example html_output_demo` to generate browser-ready HTML files:
+- `output/index.html` - Interactive demo index
+- `output/basic_demo.html` - Basic component examples
+- `output/conditional_demo.html` - Boolean prop conditional rendering
+- `output/composition_demo.html` - Complex component composition
+
+These files can be opened directly in any web browser to see RUITL components in action.
 
 ## ⚠️ Known Issues
 
@@ -123,7 +340,17 @@ impl Component for Button {
 
 ### Template Compilation Flow
 ```
-.ruitl files → Build Script Parser → AST → Code Generator → .rs files → rustc → Binary
+.ruitl files → Parser → AST → Code Generator → .rs files → rustc → Binary → HTML Output → Browser
+```
+
+### End-to-End Rendering Pipeline
+```
+1. Write .ruitl templates
+2. cargo build (templates → Rust components)
+3. Runtime: Component.render() → Html struct
+4. Html.render() → HTML string
+5. HTTP server/static generator → Browser
+6. Browser renders standard HTML/CSS/JS
 ```
 
 ### Key Components
