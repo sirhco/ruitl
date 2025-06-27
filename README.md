@@ -1,10 +1,10 @@
-# RUITL - Rust UI Template Language
+# RUITL - Rust UI Template Language v0.1.0
 
 [![Crates.io](https://img.shields.io/crates/v/ruitl.svg)](https://crates.io/crates/ruitl)
 [![Documentation](https://docs.rs/ruitl/badge.svg)](https://docs.rs/ruitl)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE)
 
-> **Status: Fully Functional** - Template compilation, CLI, advanced features, and comprehensive component generation all working!
+> **⚠️ Status: Experimental (v0.1.0)** - This project is experimental and not production ready. Template compilation, CLI, and component generation are working but may have breaking changes in future versions.
 
 A modern template compiler for building type-safe HTML components in Rust. RUITL compiles `.ruitl` template files into efficient Rust code at build time, providing the safety and performance of Rust with a natural HTML-like syntax.
 
