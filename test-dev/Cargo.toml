@@ -1,0 +1,8 @@
+[package]
+name = "test-dev"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ruitl = { path = "../ruitl" }
+tokio = { version = "1.0", features = ["full"] }

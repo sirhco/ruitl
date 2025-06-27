@@ -1,0 +1,90 @@
+[workspace]
+members = [".", "ruitl_macros"]
+
+[package]
+name = "ruitl"
+version = "0.1.0"
+edition = "2021"
+description = "A Rust UI Template Language for building HTML components and applications"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/chrisolson/ruitl"
+keywords = ["html", "template", "ui", "ssr", "static"]
+categories = ["web-programming", "template-engine"]
+
+[[bin]]
+name = "ruitl"
+path = "src/main.rs"
+
+[lib]
+name = "ruitl"
+path = "src/lib.rs"
+
+[dependencies]
+# Core dependencies
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+thiserror = "1.0"
+
+# HTML and templating
+html-escape = "0.2"
+pulldown-cmark = "0.9"
+minify-html = { version = "0.11", optional = true }
+
+# CLI and file handling
+clap = { version = "4.0", features = ["derive", "cargo"] }
+walkdir = "2.3"
+notify = { version = "6.0", optional = true }
+colored = "2.0"
+
+# HTTP server for development
+hyper = { version = "0.14", features = ["full"], optional = true }
+hyper-tls = { version = "0.5", optional = true }
+
+# Build and compilation
+proc-macro2 = "1.0"
+quote = "1.0"
+syn = { version = "2.0", features = ["full"] }
+
+# File watching and hot reload
+hotwatch = { version = "0.4", optional = true }
+
+# Configuration
+toml = "0.8"
+dirs = "5.0"
+
+# Async utilities
+futures = "0.3"
+async-trait = "0.1"
+
+# Additional dependencies
+urlencoding = "2.1"
+uuid = { version = "1.0", features = ["v4"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+
+# Proc macros
+ruitl_macros = { path = "ruitl_macros" }
+
+# Development dependencies
+[dev-dependencies]
+tempfile = "3.0"
+pretty_assertions = "1.0"
+tokio-test = "0.4"
+
+[features]
+default = ["server", "static", "dev"]
+server = ["dep:hyper", "dep:hyper-tls", "tokio/rt-multi-thread"]
+static = []
+dev = ["dep:hotwatch", "dep:notify"]
+minify = ["dep:minify-html"]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.dev]
+opt-level = 0
+debug = true

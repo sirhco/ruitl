@@ -1,0 +1,139 @@
+plugins = []
+
+[project]
+name = "ruitl-example"
+version = "0.1.0"
+description = "Example RUITL project configuration"
+author = "RUITL Team"
+license = "MIT OR Apache-2.0"
+homepage = "https://ruitl.dev"
+repository = "https://github.com/example/ruitl-example"
+
+[build]
+src_dir = "src"
+out_dir = "dist"
+template_dir = "templates"
+static_dir = "static"
+minify = false
+source_maps = true
+debug = true
+optimization = "basic"
+
+[[build.targets]]
+name = "web"
+platform = "web"
+config = {}
+
+[build.hooks]
+pre_build = []
+post_build = []
+on_error = []
+
+[dev]
+port = 3000
+host = "localhost"
+open = false
+hot_reload = true
+live_reload = true
+watch = ["src/**/*", "templates/**/*"]
+ignore = ["node_modules/**", "dist/**", "target/**"]
+proxy = {}
+
+[dev.cors]
+origins = ["*"]
+methods = ["GET", "POST"]
+headers = ["Content-Type"]
+credentials = false
+
+[static_gen]
+base_url = "/"
+generate_404 = true
+generate_sitemap = true
+generate_robots = true
+routes = []
+dynamic_routes = []
+
+[static_gen.seo]
+default_keywords = []
+
+[static_gen.seo.og]
+title = "RUITL Example App"
+description = "An example application built with RUITL"
+site_name = "RUITL Example"
+
+[static_gen.seo.twitter]
+card = "summary"
+site = "@ruitl"
+
+[ssr]
+port = 8080
+host = "0.0.0.0"
+cache = true
+expose_env = []
+
+[ssr.cache_config]
+cache_type = "memory"
+ttl = 3600
+max_size = 1000
+prefix = "ruitl:"
+
+[ssr.session]
+secret = "change-me-in-production"
+name = "ruitl.sid"
+max_age = 86400
+secure = false
+same_site = "lax"
+
+[templates]
+extensions = ["ruitl", "html"]
+includes_dir = "templates/includes"
+layouts_dir = "templates/layouts"
+globals = {}
+filters = {}
+
+[templates.engine]
+auto_escape = true
+trim_blocks = true
+lstrip_blocks = true
+
+[templates.engine.delimiters]
+variable_start = "{{"
+variable_end = "}}"
+block_start = "{%"
+block_end = "%}"
+comment_start = "{#"
+comment_end = "#}"
+
+[components]
+dirs = ["src/components"]
+extensions = ["rs"]
+auto_import = true
+naming = "pascal_case"
+
+[components.styles]
+scoped = true
+css_modules = false
+
+[components.scripts]
+typescript = false
+
+[assets]
+dirs = ["static"]
+public_path = "/"
+filename = "[name].[hash].[ext]"
+hash = true
+
+[assets.images]
+optimize = true
+formats = ["webp"]
+sizes = [320, 640, 1024, 1920]
+quality = 80
+
+[assets.fonts]
+inline = true
+inline_limit = 8192
+formats = ["woff2", "woff"]
+
+[environments]
+
+[custom]
