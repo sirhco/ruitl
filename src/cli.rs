@@ -263,7 +263,16 @@ impl CliApp {
         // Write generated file
         let relative_path = template_path.strip_prefix(src_dir).unwrap_or(template_path);
         let mut rust_file = out_dir.join(relative_path);
-        rust_file.set_extension("rs");
+
+        // Convert filename to lowercase to match module naming convention
+        if let Some(filename) = rust_file.file_stem() {
+            if let Some(filename_str) = filename.to_str() {
+                let lowercase_filename = format!("{}.rs", filename_str.to_lowercase());
+                rust_file.set_file_name(lowercase_filename);
+            }
+        } else {
+            rust_file.set_extension("rs");
+        }
 
         if let Some(parent) = rust_file.parent() {
             fs::create_dir_all(parent).map_err(|e| {
@@ -409,6 +418,17 @@ impl CliApp {
         // Generate build files
         self.generate_build_files(&project_dir, name, with_server)?;
 
+        // Generate placeholder generated files
+        self.generate_placeholder_generated_files(&project_dir)?;
+
+        // Generate RUITL binary wrapper
+        self.generate_ruitl_binary_wrapper(&project_dir)?;
+
+        // Compile example templates if they were generated
+        if with_examples {
+            self.compile_initial_templates(&project_dir).await?;
+        }
+
         // Generate static assets
         self.generate_static_assets(&project_dir)?;
 
@@ -453,6 +473,10 @@ impl CliApp {
                 RuitlError::config(format!("Failed to create handlers directory: {}", e))
             })?;
         }
+
+        // Create bin directory for RUITL binary
+        fs::create_dir_all(project_dir.join("bin"))
+            .map_err(|e| RuitlError::config(format!("Failed to create bin directory: {}", e)))?;
 
         if with_examples {
             fs::create_dir_all(project_dir.join("examples")).map_err(|e| {
@@ -520,13 +544,12 @@ A RUITL (Rust UI Template Language) project for building type-safe HTML componen
 ### Prerequisites
 
 - Rust 1.70 or later
-- RUITL CLI tool
 
 ### Building
 
 ```bash
-# Compile templates
-ruitl compile
+# Compile templates (using included RUITL binary)
+cargo run --bin ruitl -- compile
 
 # Build the project
 cargo build
@@ -543,14 +566,19 @@ cargo run
 
 ```bash
 # Watch for template changes and recompile
-ruitl compile --watch
+cargo run --bin ruitl -- compile --watch
 ```
+
+## RUITL Binary
+
+This project includes a local RUITL binary for template compilation. You don't need to install RUITL separately - everything you need is included in the project dependencies.
 
 ## Project Structure
 
 ```
 {}
 ├── src/           # Rust source code
+├── bin/           # RUITL CLI binary wrapper
 ├── templates/     # RUITL template files
 ├── generated/     # Generated Rust code (auto-generated)
 ├── static/        # Static assets (CSS, JS, images)
@@ -586,7 +614,7 @@ ruitl Button(props: ButtonProps) {{
 
 ## Learn More
 
-- [RUITL Documentation](https://github.com/chrisolson/ruitl)
+- [RUITL Documentation](https://github.com/sirhco/ruitl)
 - [Rust Documentation](https://doc.rust-lang.org/)
 "#,
             name, name
@@ -618,7 +646,7 @@ ruitl Button(props: ButtonProps) {
     <button
         class={format!("btn btn-{} btn-{}", props.variant, props.size)}
         disabled?={props.disabled}
-        onclick={props.onclick.unwrap_or_default()}
+        onclick={props.onclick.as_deref().unwrap_or("")}
         type="button"
     >
         {props.text}
@@ -652,7 +680,7 @@ ruitl Card(props: CardProps) {
             <p class="card-content">{props.content}</p>
         </div>
 
-        if let Some(footer) = props.footer {
+        if let Some(footer) = &props.footer {
             <div class="card-footer">
                 <p class="card-footer-text">{footer}</p>
             </div>
@@ -734,8 +762,16 @@ version = "0.1.0"
 edition = "2021"
 description = "A RUITL project with server support"
 
+[[bin]]
+name = "ruitl"
+path = "bin/ruitl.rs"
+
 [dependencies]
-ruitl = {{ path = "../ruitl" }}  # Adjust path as needed
+# RUITL dependency - Update this based on your setup:
+# For published version: ruitl = "0.1.0"
+# For git version: ruitl = {{ git = "https://github.com/sirhco/ruitl.git" }}
+# For local development: ruitl = {{ path = "../path/to/ruitl" }}
+ruitl = {{ git = "https://github.com/sirhco/ruitl.git" }}
 tokio = {{ version = "1.0", features = ["full"] }}
 hyper = {{ version = "0.14", features = ["full"] }}
 serde = {{ version = "1.0", features = ["derive"] }}
@@ -744,6 +780,12 @@ anyhow = "1.0"
 
 [dev-dependencies]
 tempfile = "3.0"
+
+# Custom scripts for development workflow
+[package.metadata.scripts]
+compile = "cargo run --bin ruitl -- compile"
+watch = "cargo run --bin ruitl -- compile --watch"
+dev = "cargo run --bin ruitl -- compile --watch & cargo run"
 "#,
                 name
             )
@@ -755,14 +797,27 @@ version = "0.1.0"
 edition = "2021"
 description = "A RUITL project"
 
+[[bin]]
+name = "ruitl"
+path = "bin/ruitl.rs"
+
 [dependencies]
-ruitl = {{ path = "../ruitl" }}  # Adjust path as needed
+# RUITL dependency - Update this based on your setup:
+# For published version: ruitl = "0.1.0"
+# For git version: ruitl = {{ git = "https://github.com/sirhco/ruitl.git" }}
+# For local development: ruitl = {{ path = "../path/to/ruitl" }}
+ruitl = {{ git = "https://github.com/sirhco/ruitl.git" }}
 serde = {{ version = "1.0", features = ["derive"] }}
 serde_json = "1.0"
 anyhow = "1.0"
 
 [dev-dependencies]
 tempfile = "3.0"
+
+# Custom scripts for development workflow
+[package.metadata.scripts]
+compile = "cargo run --bin ruitl -- compile"
+watch = "cargo run --bin ruitl -- compile --watch"
 "#,
                 name
             )
@@ -803,6 +858,68 @@ pub fn main() {
         fs::write(&lib_path, lib_rs).map_err(|e| {
             RuitlError::config(format!("Failed to write {}: {}", lib_path.display(), e))
         })?;
+
+        Ok(())
+    }
+
+    /// Generate placeholder generated files so project compiles initially
+    fn generate_placeholder_generated_files(&self, project_dir: &Path) -> Result<()> {
+        // Generate placeholder mod.rs in generated directory
+        let placeholder_mod = r#"//! Generated RUITL components
+//! This file is automatically generated by RUITL CLI
+//! Run `ruitl compile` to generate actual components
+
+// Placeholder components - will be replaced when templates are compiled
+"#;
+
+        fs::write(project_dir.join("generated/mod.rs"), placeholder_mod)
+            .map_err(|e| RuitlError::config(format!("Failed to write generated/mod.rs: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Compile initial templates in a new project
+    async fn compile_initial_templates(&self, project_dir: &Path) -> Result<()> {
+        self.log_info("Compiling example templates...");
+
+        let templates_dir = project_dir.join("templates");
+        let output_dir = project_dir.join("generated");
+
+        // Use the existing compile_templates method
+        match self
+            .compile_templates(&templates_dir, &output_dir, false)
+            .await
+        {
+            Ok(_) => {
+                self.log_success("✓ Example templates compiled successfully");
+                Ok(())
+            }
+            Err(e) => {
+                self.log_warning(&format!("Could not compile templates: {}", e));
+                self.log_info("You can compile them later with: ruitl compile");
+                Ok(()) // Don't fail the scaffold process
+            }
+        }
+    }
+
+    /// Generate RUITL binary wrapper
+    fn generate_ruitl_binary_wrapper(&self, project_dir: &Path) -> Result<()> {
+        let binary_wrapper = r#"//! RUITL CLI Binary Wrapper
+//! This file provides a local RUITL CLI for template compilation
+
+use ruitl::cli;
+
+#[tokio::main]
+async fn main() {
+    if let Err(e) = cli::run_cli().await {
+        eprintln!("Error: {}", e);
+        std::process::exit(1);
+    }
+}
+"#;
+
+        fs::write(project_dir.join("bin").join("ruitl.rs"), binary_wrapper)
+            .map_err(|e| RuitlError::config(format!("Failed to write bin/ruitl.rs: {}", e)))?;
 
         Ok(())
     }
@@ -856,13 +973,16 @@ pub fn main() {
         );
         println!();
         println!("  2. {} RUITL templates:", "Compile".cyan());
-        println!("     {}", format!("ruitl {}", "compile").bright_black());
+        println!(
+            "     {}",
+            format!("cargo run --bin ruitl -- {}", "compile").bright_black()
+        );
         println!();
-        println!("  3. {} the project:", "Build".cyan());
+        println!("  3. Build the project:");
         println!("     {}", format!("cargo {}", "build").bright_black());
         println!();
         if with_server {
-            println!("  4. {} the server:", "Run".cyan());
+            println!("  4. Run the server:");
             println!("     {}", format!("cargo {}", "run").bright_black());
             println!();
             println!(
@@ -870,7 +990,7 @@ pub fn main() {
                 "http://localhost:3000".bright_blue().underline()
             );
         } else {
-            println!("  4. {} the application:", "Run".cyan());
+            println!("  4. Run the application:");
             println!("     {}", format!("cargo {}", "run").bright_black());
         }
         println!();
@@ -882,19 +1002,17 @@ pub fn main() {
         );
         println!(
             "  • {} to regenerate Rust code",
-            format!("ruitl {}", "compile").bright_black()
+            format!("cargo run --bin ruitl -- {}", "compile").bright_black()
         );
         println!(
             "  • {} for automatic recompilation",
-            format!("ruitl {} --watch", "compile").bright_black()
+            format!("cargo run --bin ruitl -- {} --watch", "compile").bright_black()
         );
         println!();
         println!("{}", "Learn more:".bold());
         println!(
             "  • {}",
-            "https://github.com/chrisolson/ruitl"
-                .bright_blue()
-                .underline()
+            "https://github.com/sirhco/ruitl".bright_blue().underline()
         );
         println!(
             "  • Check out the {} directory for usage examples",
@@ -937,6 +1055,7 @@ use std::net::SocketAddr;
 use tokio;
 
 mod handlers;
+#[path = "../generated/mod.rs"]
 mod generated;
 
 use handlers::*;
@@ -984,92 +1103,133 @@ async fn handle_request(req: Request<Body>) -> Result<Response<Body>, Infallible
 
     /// Generate handlers/mod.rs content
     fn generate_handlers_mod_content(&self) -> String {
-        r#"//! HTTP request handlers
+        format!(
+            r##"//! HTTP request handlers
 
-use hyper::{Body, Response, StatusCode};
+use hyper::{{Body, Response, StatusCode}};
 use std::fs;
-use crate::generated::*;
 
-pub async fn serve_home() -> Response<Body> {
-    let layout = Layout;
-    let layout_props = LayoutProps {
-        title: "Welcome to RUITL".to_string(),
-        description: Some("A modern template system for Rust".to_string()),
-        children: "
-            <div class=\"hero\">
-                <h2>Welcome to Your RUITL Project!</h2>
-                <p>You've successfully created a new RUITL project with server support.</p>
+// Note: Generated components will be available after running `ruitl compile`
+// For now, we use simple HTML responses
+
+pub async fn serve_home() -> Response<Body> {{
+    let html = r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome to RUITL</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Welcome to Your RUITL Project!</h1>
+        <div class="hero">
+            <h2>🚀 Successfully Created RUITL Project</h2>
+            <p>You've successfully created a new RUITL project with server support.</p>
+        </div>
+
+        <div class="features">
+            <div class="feature-card">
+                <h3>🚀 Fast</h3>
+                <p>Compile-time template processing for maximum performance</p>
             </div>
-
-            <div class=\"features\">
-                <div class=\"feature-card\">
-                    <h3>🚀 Fast</h3>
-                    <p>Compile-time template processing for maximum performance</p>
-                </div>
-                <div class=\"feature-card\">
-                    <h3>🔒 Type Safe</h3>
-                    <p>Full Rust type safety for your templates and components</p>
-                </div>
-                <div class=\"feature-card\">
-                    <h3>🎨 Modern</h3>
-                    <p>Clean, intuitive syntax for building beautiful UIs</p>
-                </div>
+            <div class="feature-card">
+                <h3>🔒 Type Safe</h3>
+                <p>Full Rust type safety for your templates and components</p>
             </div>
-        ".to_string(),
-    };
-
-    match render_component(layout, layout_props) {
-        Ok(html) => Response::builder()
-            .header("content-type", "text/html")
-            .body(Body::from(html))
-            .unwrap(),
-        Err(e) => error_response(&format!("Render error: {}", e)),
-    }
-}
-
-pub async fn serve_about() -> Response<Body> {
-    let layout = Layout;
-    let layout_props = LayoutProps {
-        title: "About - RUITL Project".to_string(),
-        description: Some("Learn more about this RUITL project".to_string()),
-        children: "
-            <div class=\"about-content\">
-                <h2>About This Project</h2>
-                <p>This is a RUITL project scaffold that demonstrates:</p>
-                <ul>
-                    <li>✅ Component-based architecture</li>
-                    <li>✅ Type-safe templates</li>
-                    <li>✅ Server-side rendering</li>
-                    <li>✅ Static asset serving</li>
-                    <li>✅ Hot reload during development</li>
-                </ul>
-
-                <h3>Next Steps</h3>
-                <ol>
-                    <li>Edit templates in the <code>templates/</code> directory</li>
-                    <li>Run <code>ruitl compile</code> to generate Rust code</li>
-                    <li>Build and run with <code>cargo run</code></li>
-                </ol>
+            <div class="feature-card">
+                <h3>🎨 Modern</h3>
+                <p>Clean, intuitive syntax for building beautiful UIs</p>
             </div>
-        ".to_string(),
-    };
+        </div>
 
-    match render_component(layout, layout_props) {
-        Ok(html) => Response::builder()
-            .header("content-type", "text/html")
-            .body(Body::from(html))
-            .unwrap(),
-        Err(e) => error_response(&format!("Render error: {}", e)),
-    }
-}
+        <div class="next-steps">
+            <h3>Next Steps</h3>
+            <ol>
+                <li>Edit templates in the <code>templates/</code> directory</li>
+                <li>Run <code>ruitl compile</code> to generate Rust components</li>
+                <li>Replace these handlers with component-based rendering</li>
+                <li>Build and run with <code>cargo run</code></li>
+            </ol>
+        </div>
 
-pub async fn serve_static(path: &str) -> Response<Body> {
+        <nav class="nav">
+            <a href="/">Home</a> |
+            <a href="/about">About</a>
+        </nav>
+    </div>
+</body>
+</html>"#;
+
+    Response::builder()
+        .header("content-type", "text/html")
+        .body(Body::from(html))
+        .unwrap()
+}}
+
+pub async fn serve_about() -> Response<Body> {{
+    let html = r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>About - RUITL Project</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>About This RUITL Project</h1>
+
+        <div class="about-content">
+            <h2>About This Project</h2>
+            <p>This is a RUITL project scaffold that demonstrates:</p>
+            <ul>
+                <li>✅ Component-based architecture</li>
+                <li>✅ Type-safe templates</li>
+                <li>✅ Server-side rendering</li>
+                <li>✅ Static asset serving</li>
+                <li>✅ Hot reload during development</li>
+            </ul>
+
+            <h3>Getting Started</h3>
+            <ol>
+                <li>Edit templates in the <code>templates/</code> directory</li>
+                <li>Run <code>ruitl compile</code> to generate Rust code</li>
+                <li>Update handlers to use generated components</li>
+                <li>Build and run with <code>cargo run</code></li>
+            </ol>
+
+            <h3>Template Example</h3>
+            <p>Check out the example templates created in your <code>templates/</code> directory:</p>
+            <ul>
+                <li><code>Layout.ruitl</code> - Page layout component</li>
+                <li><code>Button.ruitl</code> - Interactive button component</li>
+                <li><code>Card.ruitl</code> - Content card component</li>
+            </ul>
+        </div>
+
+        <nav class="nav">
+            <a href="/">Home</a> |
+            <a href="/about">About</a>
+        </nav>
+    </div>
+</body>
+</html>"#;
+
+    Response::builder()
+        .header("content-type", "text/html")
+        .body(Body::from(html))
+        .unwrap()
+}}
+
+pub async fn serve_static(path: &str) -> Response<Body> {{
     let file_path = path.strip_prefix("/static/").unwrap_or(path);
-    let full_path = format!("static/{}", file_path);
+    let full_path = format!("static/{{}}", file_path);
 
-    match fs::read(&full_path) {
-        Ok(contents) => {
-            let content_type = match full_path.split('.').last() {
+    match fs::read(&full_path) {{
+        Ok(contents) => {{
+            let content_type = match full_path.split('.').last() {{
                 Some("css") => "text/css",
                 Some("js") => "application/javascript",
                 Some("png") => "image/png",
@@ -1077,60 +1237,60 @@ pub async fn serve_static(path: &str) -> Response<Body> {
                 Some("gif") => "image/gif",
                 Some("svg") => "image/svg+xml",
                 _ => "application/octet-stream",
-            };
+            }};
 
             Response::builder()
                 .header("content-type", content_type)
                 .body(Body::from(contents))
                 .unwrap()
-        }
+        }}
         Err(_) => serve_404().await,
-    }
-}
+    }}
+}}
 
-pub async fn serve_404() -> Response<Body> {
-    let layout = Layout;
-    let layout_props = LayoutProps {
-        title: "404 - Page Not Found".to_string(),
-        description: None,
-        children: "
-            <div class=\"error-page\">
-                <h2>404 - Page Not Found</h2>
-                <p>The page you're looking for doesn't exist.</p>
-                <a href=\"/\" class=\"btn btn-primary\">Go Home</a>
-            </div>
-        ".to_string(),
-    };
+pub async fn serve_404() -> Response<Body> {{
+    let html = r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>404 - Page Not Found</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>404 - Page Not Found</h1>
 
-    match render_component(layout, layout_props) {
-        Ok(html) => Response::builder()
-            .status(StatusCode::NOT_FOUND)
-            .header("content-type", "text/html")
-            .body(Body::from(html))
-            .unwrap(),
-        Err(e) => error_response(&format!("Render error: {}", e)),
-    }
-}
+        <div class="error-page">
+            <h2>Oops! Page Not Found</h2>
+            <p>The page you're looking for doesn't exist.</p>
+            <a href="/" class="btn btn-primary">Go Home</a>
+        </div>
 
-fn render_component<T, P>(component: T, props: P) -> Result<String, Box<dyn std::error::Error>>
-where
-    T: ruitl::Component<Props = P>,
-    P: ruitl::ComponentProps,
-{
-    let context = ruitl::ComponentContext::new();
-    let html = component.render(&props, &context)?;
-    Ok(html.render())
-}
+        <nav class="nav">
+            <a href="/">Home</a> |
+            <a href="/about">About</a>
+        </nav>
+    </div>
+</body>
+</html>"#;
 
-fn error_response(message: &str) -> Response<Body> {
+    Response::builder()
+        .status(StatusCode::NOT_FOUND)
+        .header("content-type", "text/html")
+        .body(Body::from(html))
+        .unwrap()
+}}
+
+fn error_response(message: &str) -> Response<Body> {{
     Response::builder()
         .status(StatusCode::INTERNAL_SERVER_ERROR)
         .header("content-type", "text/plain")
-        .body(Body::from(format!("Error: {}", message)))
+        .body(Body::from(format!("Error: {{}}", message)))
         .unwrap()
-}
-"#
-        .to_string()
+}}
+"##
+        )
     }
 
     /// Generate CSS content
@@ -1332,6 +1492,73 @@ body {
     padding-left: 2rem;
 }
 
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 2rem 1rem;
+}
+
+.nav {
+    margin: 2rem 0;
+    padding: 1rem;
+    text-align: center;
+    background: white;
+    border-radius: 0.5rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.nav a {
+    color: #007bff;
+    text-decoration: none;
+    font-weight: 500;
+    margin: 0 0.5rem;
+}
+
+.nav a:hover {
+    text-decoration: underline;
+}
+
+.next-steps {
+    background: white;
+    padding: 2rem;
+    border-radius: 0.5rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    margin: 2rem 0;
+}
+
+.next-steps h3 {
+    color: #333;
+    margin-bottom: 1rem;
+}
+
+.next-steps ol {
+    padding-left: 2rem;
+}
+
+.next-steps li {
+    margin: 0.5rem 0;
+    color: #555;
+}
+
+.error-page {
+    text-align: center;
+    background: white;
+    padding: 3rem;
+    border-radius: 0.5rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    margin: 2rem 0;
+}
+
+.error-page h2 {
+    color: #dc3545;
+    margin-bottom: 1rem;
+}
+
+.error-page p {
+    color: #6c757d;
+    margin-bottom: 2rem;
+}
+
 .about-content li {
     margin: 0.5rem 0;
     color: #555;
@@ -1341,7 +1568,7 @@ body {
     background: #f8f9fa;
     padding: 0.25rem 0.5rem;
     border-radius: 0.25rem;
-    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
     font-size: 0.875rem;
     color: #e83e8c;
 }

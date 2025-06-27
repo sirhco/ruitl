@@ -481,9 +481,41 @@ impl CodeGenerator {
 
     /// Transform variable access - now variables are local bindings
     fn transform_variable_access(&self, expr: &str) -> String {
-        // Since we now have local bindings, no transformation needed
-        // Variables can be used directly
-        expr.to_string()
+        let mut transformed = expr.to_string();
+
+        // Fix common borrowing issues with Option<String>
+        // Replace .unwrap_or_default() with .as_deref().unwrap_or("") for Option<String>
+        if transformed.contains(".unwrap_or_default()") {
+            // This is a heuristic - assumes most unwrap_or_default() calls are on Option<String>
+            // in template contexts where we want string output
+            transformed =
+                transformed.replace(".unwrap_or_default()", ".as_deref().unwrap_or(\"\")");
+        }
+
+        // Fix Option<T>.unwrap_or(String::new()) patterns
+        if transformed.contains(".unwrap_or(String::new())") {
+            transformed =
+                transformed.replace(".unwrap_or(String::new())", ".as_deref().unwrap_or(\"\")");
+        }
+
+        // Fix if let Some patterns to use borrowing
+        // Transform "if let Some(var) = props.field" to "if let Some(var) = &props.field"
+        if transformed.contains("if let Some(") && transformed.contains("= props.") {
+            // Simple heuristic replacement for common patterns
+            let parts: Vec<&str> = transformed.split("= props.").collect();
+            if parts.len() == 2 {
+                let before_props = parts[0];
+                let after_props = parts[1];
+                // Check if this looks like an if let Some pattern
+                if before_props.trim_end().ends_with("if let Some(")
+                    || before_props.contains("if let Some(")
+                {
+                    transformed = format!("{}= &props.{}", before_props, after_props);
+                }
+            }
+        }
+
+        transformed
     }
 
     fn generate_component_invocation_code(

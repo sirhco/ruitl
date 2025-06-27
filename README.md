@@ -94,7 +94,7 @@ use ruitl::prelude::*;
 fn main() -> Result<()> {
     // Component instances
     let button = Button;
-    
+
     // Type-safe props
     let props = ButtonProps {
         text: "Click Me!".to_string(),
@@ -104,7 +104,7 @@ fn main() -> Result<()> {
     // Render to HTML
     let context = ComponentContext::new();
     let html = button.render(&props, &context)?;
-    
+
     println!("{}", html.render());
     // Output: <button class="btn btn-primary" type="button">Click Me!</button>
 
@@ -140,11 +140,11 @@ cargo run -- scaffold --name my-project --target ./projects --with-server
 The scaffolder creates a complete project structure:
 
 ```
-my-project/
-├── Cargo.toml              # Project configuration with dependencies
-├── ruitl.toml             # RUITL-specific configuration
-├── README.md              # Project documentation
+my-ruitl-project/
 ├── .gitignore             # Git ignore file
+├── Cargo.toml             # Project configuration with dependencies
+├── README.md              # Project documentation
+├── ruitl.toml             # RUITL-specific configuration
 ├── src/
 │   ├── main.rs            # Main application (server if --with-server)
 │   ├── lib.rs             # Library code
@@ -159,9 +159,15 @@ my-project/
 │   │   └── styles.css     # Complete CSS framework
 │   └── js/
 │       └── main.js        # Interactive JavaScript
-├── generated/             # Generated Rust code (created on build)
+├── generated/             # Generated Rust code (created after compile)
+│   ├── Button.rs          # Generated from Button.ruitl
+│   ├── Card.rs            # Generated from Card.ruitl
+│   ├── Layout.rs          # Generated from Layout.ruitl
+│   └── mod.rs             # Module exports
 └── examples/              # Additional examples (if --with-examples)
 ```
+
+**Note**: The `generated/` directory is created and populated when you run `ruitl compile`. It contains the Rust code generated from your `.ruitl` template files.
 
 ### Server Implementation Features
 
@@ -199,7 +205,7 @@ ruitl Button(props: ButtonProps) {
     <button
         class={format!("btn btn-{} btn-{}", props.variant, props.size)}
         disabled?={props.disabled}
-        onclick={props.onclick.unwrap_or_default()}
+        onclick={props.onclick.as_deref().unwrap_or("")}
         type="button"
     >
         {props.text}
@@ -594,14 +600,11 @@ let props = LayoutProps {
 You can also run the original template compiler demo:
 
 ```bash
-cargo run --example template_compiler_demo
-```
-
-This lower-level example shows:
-- Template compilation process
+cargo run --example templatews:
+- Template syntax examples
 - Generated code structure
-- Build system integration
-- Component trait implementation
+- Build process workflow
+- Component usage patterns
 
 ## 🛠️ Development Workflow
 
@@ -629,7 +632,7 @@ cargo build
 ### ✅ Working Features
 
 - [x] Build script template compilation
-- [x] CLI template compilation  
+- [x] CLI template compilation
 - [x] Basic template syntax (components, props, templates)
 - [x] Advanced template syntax (conditionals, loops, composition)
 - [x] Type-safe props with defaults and validation
@@ -721,4 +724,4 @@ at your option.
 
 **RUITL: Compile-time templates for Rust 🦀**
 
-*Want to contribute? Check out our [issues](https://github.com/chrisolson/ruitl/issues) or start with the [implementation status](IMPLEMENTATION_STATUS.md).*
+*Want to contribute? Check out our [issues](https://github.com/sirhco/ruitl/issues) or start with the [implementation status](IMPLEMENTATION_STATUS.md).*
