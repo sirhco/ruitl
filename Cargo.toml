@@ -1,5 +1,6 @@
 [workspace]
 members = [".", "ruitl_macros"]
+exclude = ["test-project"]
 
 [package]
 name = "ruitl"
@@ -7,7 +8,7 @@ version = "0.1.0"
 edition = "2021"
 description = "A Rust UI Template Language for building HTML components and applications"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/chrisolson/ruitl"
+repository = "https://github.com/sirhco/ruitl"
 keywords = ["html", "template", "ui", "ssr", "static"]
 categories = ["web-programming", "template-engine"]
 

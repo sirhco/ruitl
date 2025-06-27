@@ -225,7 +225,7 @@ ruitl Input(props: InputProps) {
         value={props.value}
         disabled?={props.disabled}
         required?={props.required}
-        placeholder={props.placeholder.unwrap_or_default()}
+        placeholder={props.placeholder.as_deref().unwrap_or("")}
         class="form-input"
     />
 }
@@ -501,4 +501,4 @@ See the `examples/` directory for complete working examples:
 - [RUITL Documentation](https://docs.rs/ruitl)
 - [Template Syntax Reference](./TEMPLATE_SYNTAX.md)
 - [Component API Reference](./COMPONENT_API.md)
-- [Examples Repository](https://github.com/chrisolson/ruitl/tree/main/examples)
+- [Examples Repository](https://github.com/sirhco/ruitl/tree/main/examples)

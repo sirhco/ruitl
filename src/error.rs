@@ -14,6 +14,10 @@ pub enum RuitlError {
     #[error("Component error: {message}")]
     Component { message: String },
 
+    /// Validation errors
+    #[error("Validation error: {message}")]
+    Validation { message: String },
+
     /// HTML rendering errors
     #[error("Render error: {message}")]
     Render { message: String },
@@ -94,6 +98,13 @@ impl RuitlError {
         }
     }
 
+    /// Create a new validation error
+    pub fn validation<S: Into<String>>(message: S) -> Self {
+        Self::Validation {
+            message: message.into(),
+        }
+    }
+
     /// Create a new render error
     pub fn render<S: Into<String>>(message: S) -> Self {
         Self::Render {
@@ -170,6 +181,11 @@ impl RuitlError {
     /// Check if this is a component error
     pub fn is_component(&self) -> bool {
         matches!(self, Self::Component { .. })
+    }
+
+    /// Check if this is a validation error
+    pub fn is_validation(&self) -> bool {
+        matches!(self, Self::Validation { .. })
     }
 
     /// Check if this is a render error

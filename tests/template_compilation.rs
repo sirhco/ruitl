@@ -257,7 +257,7 @@ ruitl Input(props: InputProps) {
         value={props.value}
         disabled?={props.disabled}
         required?={props.required}
-        placeholder={props.placeholder.unwrap_or_default()}
+        placeholder={props.placeholder.as_deref().unwrap_or("")}
         class="form-input"
     />
 }

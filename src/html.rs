@@ -524,6 +524,14 @@ pub fn aside() -> HtmlElement {
     HtmlElement::new("aside")
 }
 
+pub fn title() -> HtmlElement {
+    HtmlElement::new("title")
+}
+
+pub fn style() -> HtmlElement {
+    HtmlElement::new("style")
+}
+
 /// Create a text node
 pub fn text<S: Into<String>>(content: S) -> Html {
     Html::text(content)
