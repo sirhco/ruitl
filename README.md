@@ -1,10 +1,10 @@
-# RUITL - Rust UI Template Language
+# RUITL - Rust UI Template Language v0.1.0
 
 [![Crates.io](https://img.shields.io/crates/v/ruitl.svg)](https://crates.io/crates/ruitl)
 [![Documentation](https://docs.rs/ruitl/badge.svg)](https://docs.rs/ruitl)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE)
 
-> **Status: Fully Functional** - Template compilation, CLI, advanced features, and comprehensive component generation all working!
+> **⚠️ Status: Experimental (v0.1.0)** - This project is experimental and not production ready. Template compilation, CLI, and component generation are working but may have breaking changes in future versions.
 
 A modern template compiler for building type-safe HTML components in Rust. RUITL compiles `.ruitl` template files into efficient Rust code at build time, providing the safety and performance of Rust with a natural HTML-like syntax.
 
@@ -20,9 +20,31 @@ A modern template compiler for building type-safe HTML components in Rust. RUITL
 
 ## 🚀 Quick Start
 
-You can get started with RUITL in two ways:
+You can get started with RUITL in three ways:
 
-### Option 1: Use the Project Scaffolder (Recommended)
+### Option 1: Explore the RUITL Repository (Development)
+
+Clone and explore the RUITL repository with built-in examples:
+
+```bash
+# Clone RUITL repository
+git clone https://github.com/chrisolson/ruitl.git
+cd ruitl
+
+# Build RUITL
+cargo build
+
+# Compile example templates in the repository
+cargo run -- compile
+
+# Run the server integration example with live templates
+cargo run --example server_integration
+# Server available at http://localhost:3000
+```
+
+This gives you immediate access to working examples and lets you experiment with RUITL templates directly in the repository.
+
+### Option 2: Use the Project Scaffolder (Recommended)
 
 Create a complete project with examples and server support:
 
@@ -37,15 +59,15 @@ cargo run -- scaffold --name my-project --with-server --with-examples
 # Navigate to your new project
 cd my-project
 
-# Compile templates and run
-ruitl compile
+# Compile templates and run (using included RUITL binary)
+cargo run --bin ruitl -- compile
 cargo run
 # Server available at http://localhost:3000
 ```
 
 This creates a complete project structure with example components, HTTP server, static assets, and documentation.
 
-### Option 2: Manual Setup
+### Option 3: Manual Setup
 
 ### 1. Add RUITL to Your Project
 
@@ -145,6 +167,8 @@ my-ruitl-project/
 ├── Cargo.toml             # Project configuration with dependencies
 ├── README.md              # Project documentation
 ├── ruitl.toml             # RUITL-specific configuration
+├── bin/
+│   └── ruitl.rs           # Included RUITL CLI binary
 ├── src/
 │   ├── main.rs            # Main application (server if --with-server)
 │   ├── lib.rs             # Library code
@@ -167,7 +191,9 @@ my-ruitl-project/
 └── examples/              # Additional examples (if --with-examples)
 ```
 
-**Note**: The `generated/` directory is created and populated when you run `ruitl compile`. It contains the Rust code generated from your `.ruitl` template files.
+**Note**: The `generated/` directory is created and populated when you run `cargo run --bin ruitl -- compile`. It contains the Rust code generated from your `.ruitl` template files.
+
+**Self-Contained Binary**: Each scaffolded project includes its own RUITL CLI binary in the `bin/` directory, so you don't need to install RUITL globally. All template compilation is done using `cargo run --bin ruitl -- <command>`.
 
 ### Server Implementation Features
 
@@ -223,8 +249,8 @@ After scaffolding:
 # Navigate to your project
 cd my-project
 
-# Compile RUITL templates
-ruitl compile
+# Compile RUITL templates (using included binary)
+cargo run --bin ruitl -- compile
 
 # Build the project
 cargo build
@@ -236,6 +262,8 @@ cargo run
 # Or run as library (if no server)
 cargo run
 ```
+
+**Why the included binary?** Each scaffolded project includes its own RUITL CLI wrapper (`bin/ruitl.rs`) that uses the same RUITL version as your project dependencies. This ensures version consistency and eliminates the need for global RUITL installation.
 
 ### Scaffold Command Options
 
@@ -279,6 +307,9 @@ cargo run -- <command>
 # Or install globally (after publishing)
 cargo install ruitl
 ruitl <command>
+
+# In scaffolded projects, use the included binary
+cargo run --bin ruitl -- <command>
 ```
 
 ### Available Commands
@@ -380,6 +411,10 @@ hot_reload = false
 
 ### Development Workflow
 
+#### Working with Scaffolded Projects
+
+For projects created with the scaffolder:
+
 ```bash
 # 1. Create new project
 ruitl scaffold --name my-app --with-server --with-examples
@@ -387,14 +422,37 @@ ruitl scaffold --name my-app --with-server --with-examples
 # 2. Navigate to project
 cd my-app
 
-# 3. Start development with watch mode
-ruitl compile --watch &
+# 3. Start development with watch mode (using included binary)
+cargo run --bin ruitl -- compile --watch &
 
 # 4. Run the server (in another terminal)
 cargo run
 
 # 5. Edit templates and see changes automatically
 # Templates in templates/ are watched and recompiled
+```
+
+#### Working on RUITL Repository
+
+For contributing to RUITL or using repository examples:
+
+```bash
+# 1. Clone and build RUITL
+git clone https://github.com/chrisolson/ruitl.git
+cd ruitl
+cargo build
+
+# 2. Compile repository templates
+cargo run -- compile
+
+# 3. Run examples with live reload
+cargo run --example server_integration
+# Visit http://localhost:3000
+
+# 4. For development with watch mode
+cargo run -- compile --watch &
+
+# 5. Edit templates/ files and see changes in examples
 ```
 
 ### Examples
@@ -544,7 +602,7 @@ cargo run -- scaffold --name ruitl-demo --with-server --with-examples
 
 # Navigate and run the example
 cd ruitl-demo
-ruitl compile
+cargo run --bin ruitl -- compile
 cargo run
 # Visit http://localhost:3000
 ```
@@ -595,12 +653,45 @@ let props = LayoutProps {
 };
 ```
 
+### Repository Examples
+
+The RUITL repository includes several built-in examples you can run immediately:
+
+```bash
+# Clone and build RUITL
+git clone https://github.com/chrisolson/ruitl.git
+cd ruitl
+cargo build
+
+# Run the server integration example (recommended)
+cargo run --example server_integration
+# Visit http://localhost:3000 to see:
+# - Live component rendering
+# - Multiple page routing
+# - Static asset serving
+# - Type-safe component usage
+
+# Other examples available:
+cargo run --example basic_usage           # Basic component usage
+cargo run --example hello_world          # Simple hello world
+cargo run --example html_output_demo     # HTML generation demo
+cargo run --example template_compiler_demo # Template compilation demo
+cargo run --example advanced_features_demo # Advanced RUITL features
+```
+
+**Server Integration Example Features:**
+- **Live Components**: See Button, UserCard, and Page components in action
+- **Multiple Routes**: Home, Users, About, and API endpoints
+- **Server-Side Rendering**: Components rendered to HTML
+- **Type Safety**: Demonstrates prop validation and error handling
+- **Navigation**: Working page navigation with styled components
+
 ### Original Demo
 
 You can also run the original template compiler demo:
 
 ```bash
-cargo run --example templatews:
+cargo run --example template_compiler_demo
 - Template syntax examples
 - Generated code structure
 - Build process workflow
