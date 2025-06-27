@@ -4,380 +4,322 @@
 [![Documentation](https://docs.rs/ruitl/badge.svg)](https://docs.rs/ruitl)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE)
 
-A modern, type-safe template engine for building HTML components and applications in Rust. RUITL combines the performance and safety of Rust with the flexibility of component-based UI development.
+> **Status: Functional MVP** - Template compilation, CLI, and basic component generation working!
 
-## ✨ Features
+A modern template compiler for building type-safe HTML components in Rust. RUITL compiles `.ruitl` template files into efficient Rust code at build time, providing the safety and performance of Rust with a natural HTML-like syntax.
 
-- 🚀 **Server-side rendering**: Deploy as serverless functions, Docker containers, or standard Rust programs
-- ⚡ **Static site generation**: Create static HTML files for any hosting service
-- 🦀 **Compiled components**: Components are compiled into performant Rust code
-- 🔧 **Pure Rust**: Call any Rust code and use standard `if`, `match`, and `for` statements
-- 🚫 **No JavaScript**: Does not require any client or server-side JavaScript
-- 🎯 **Great DX**: Ships with IDE autocompletion and type safety
-- 🔥 **Hot reload**: Fast development with automatic reloading
-- 📦 **Component-based**: Create reusable UI components with props and lifecycle methods
+## ✨ Key Features
+
+- 🔄 **Template Compilation**: `.ruitl` files compiled to Rust code at build time
+- 🦀 **Type Safety**: Generated components with full Rust type checking
+- ⚡ **Zero Runtime**: Templates compiled away - pure Rust performance
+- 🔧 **Cargo Integration**: Seamless build process with standard Rust tooling
+- 📦 **Component Props**: Type-safe props with validation and defaults
+- 🎯 **HTML Generation**: Clean, efficient HTML output
+- 🚫 **No JavaScript**: Pure Rust, server-side rendering focus
 
 ## 🚀 Quick Start
 
-### Installation
-
-Add RUITL to your `Cargo.toml`:
+### 1. Add RUITL to Your Project
 
 ```toml
+# Cargo.toml
 [dependencies]
 ruitl = "0.1.0"
 tokio = { version = "1.0", features = ["full"] }
+
+[build-dependencies]
+walkdir = "2.3"
 ```
 
-### Hello World
+### 2. Create a Template
+
+Create `templates/Button.ruitl`:
+
+```ruitl
+// Button.ruitl - A reusable button component
+component Button {
+    props {
+        text: String,
+        variant: String = "primary",
+        disabled: bool = false,
+    }
+}
+
+ruitl Button(text: String, variant: String) {
+    <button class={format!("btn btn-{}", variant)} type="button">
+        {text}
+    </button>
+}
+```
+
+### 3. Use Generated Components
+
+The build process automatically generates Rust components:
 
 ```rust
 use ruitl::prelude::*;
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct GreetingProps {
-    name: String,
-}
+// Generated components are available after build
+// mod generated;
+// use generated::*;
 
-impl ComponentProps for GreetingProps {}
-
-#[derive(Debug)]
-struct Greeting;
-
-impl Component for Greeting {
-    type Props = GreetingProps;
-
-    fn render(&self, props: &Self::Props, _context: &ComponentContext) -> Result<Html> {
-        Ok(html! {
-            <div class="greeting">
-                <h1>Hello, {props.name}!</h1>
-                <p>Welcome to RUITL!</p>
-            </div>
-        })
-    }
-}
-
-#[tokio::main]
-async fn main() -> Result<()> {
-    let component = Greeting;
-    let props = GreetingProps {
-        name: "World".to_string(),
+fn main() -> Result<()> {
+    // Component instances
+    let button = Button;
+    
+    // Type-safe props
+    let props = ButtonProps {
+        text: "Click Me!".to_string(),
+        variant: "primary".to_string(),
     };
+
+    // Render to HTML
+    let context = ComponentContext::new();
+    let html = button.render(&props, &context)?;
     
-    let html = component.render(&props, &ComponentContext::new())?;
     println!("{}", html.render());
-    
+    // Output: <button class="btn btn-primary" type="button">Click Me!</button>
+
     Ok(())
 }
 ```
 
-## 📖 Documentation
+## 📝 Template Syntax
 
-### Creating Components
+### Component Definitions
 
-Components in RUITL are Rust structs that implement the `Component` trait:
+Define reusable components with type-safe props:
+
+```ruitl
+component UserCard {
+    props {
+        name: String,
+        email: String,
+        role: String = "user",
+        avatar_url: String?,
+        is_verified: bool = false,
+    }
+}
+```
+
+### Template Implementation
+
+Implement the component's HTML structure:
+
+```ruitl
+ruitl UserCard(name: String, email: String, role: String) {
+    <div class="user-card">
+        <div class="user-header">
+            <h3 class="user-name">{name}</h3>
+            <span class="user-role">{role}</span>
+        </div>
+        <div class="user-contact">
+            <p class="user-email">{email}</p>
+        </div>
+    </div>
+}
+```
+
+### Expression Interpolation
+
+Use Rust expressions directly in templates:
+
+```ruitl
+ruitl Example(count: u32, items: Vec<String>) {
+    <div>
+        <h1>Items ({count})</h1>
+        <p>Status: {if count > 0 { "Has items" } else { "Empty" }}</p>
+        <p>First item: {items.first().unwrap_or(&"None".to_string())}</p>
+    </div>
+}
+```
+
+## ⚙️ Build Process
+
+RUITL integrates seamlessly with Cargo's build system:
+
+### Project Structure
+
+```
+my-app/
+├── Cargo.toml
+├── build.rs                 # Auto-compile templates
+├── src/
+│   ├── main.rs
+│   └── lib.rs
+└── templates/              # Your .ruitl files
+    ├── Button.ruitl
+    ├── UserCard.ruitl
+    └── Layout.ruitl
+```
+
+### Build Integration
+
+Add to your `build.rs`:
 
 ```rust
-use ruitl::prelude::*;
+// build.rs
+fn main() {
+    // RUITL templates automatically compiled
+    println!("cargo:rerun-if-changed=templates");
+}
+```
 
-#[derive(Debug, Clone)]
-struct ButtonProps {
-    text: String,
-    variant: String,
-    disabled: bool,
+### Generated Code
+
+Templates compile to efficient Rust code:
+
+```rust
+// Generated from Button.ruitl
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ButtonProps {
+    pub text: String,
+    pub variant: String, // default: "primary"
 }
 
-impl ComponentProps for ButtonProps {}
+impl ComponentProps for ButtonProps {
+    fn validate(&self) -> ruitl::error::Result<()> {
+        Ok(())
+    }
+}
 
 #[derive(Debug)]
-struct Button;
+pub struct Button;
 
 impl Component for Button {
     type Props = ButtonProps;
 
-    fn render(&self, props: &Self::Props, _context: &ComponentContext) -> Result<Html> {
-        let classes = format!("btn btn-{}", props.variant);
-        
-        Ok(Html::Element(
-            ruitl::html::button()
-                .class(&classes)
-                .attr("disabled", if props.disabled { "true" } else { "" })
-                .text(&props.text)
-        ))
+    fn render(&self, props: &Self::Props, context: &ComponentContext) -> ruitl::error::Result<Html> {
+        Ok(html! {
+            <button class={format!("btn btn-{}", props.variant)} type="button">
+                {props.text}
+            </button>
+        })
     }
 }
 ```
 
-### HTML Generation
+## 🧪 Examples
 
-RUITL provides a fluent API for creating HTML:
-
-```rust
-use ruitl::html::*;
-
-let html = div()
-    .class("container")
-    .id("main")
-    .child(
-        h1().text("Welcome")
-    )
-    .child(
-        p().text("This is a paragraph")
-    )
-    .child(
-        ul()
-            .child(li().text("Item 1"))
-            .child(li().text("Item 2"))
-            .child(li().text("Item 3"))
-    );
-```
-
-### Routing
-
-Set up routes for your application:
-
-```rust
-use ruitl::router::*;
-
-let router = Router::builder()
-    .add("/")
-        .get()
-        .function(|ctx| {
-            Ok(RouteResponse::html(
-                Html::Element(div().text("Home Page"))
-            ))
-        })
-    .add("/users/:id")
-        .get()
-        .function(|ctx| {
-            let user_id = ctx.params.get("id").unwrap_or("unknown");
-            Ok(RouteResponse::html(
-                Html::Element(div().text(&format!("User: {}", user_id)))
-            ))
-        })
-    .build();
-```
-
-### Server-Side Rendering
-
-Deploy your RUITL application as a web server:
-
-```rust
-use ruitl::server::DevServer;
-use ruitl::config::{DevConfig, RuitlConfig};
-
-#[tokio::main]
-async fn main() -> Result<()> {
-    let dev_config = DevConfig {
-        port: 3000,
-        host: "localhost".to_string(),
-        hot_reload: true,
-        ..Default::default()
-    };
-    
-    let project_config = RuitlConfig::default();
-    let mut server = DevServer::new(dev_config, project_config)?;
-    
-    server.start().await?;
-    
-    Ok(())
-}
-```
-
-### Static Site Generation
-
-Generate static HTML files:
-
-```rust
-use ruitl::static_gen::StaticGenerator;
-use ruitl::config::{StaticConfig, RuitlConfig};
-
-#[tokio::main]
-async fn main() -> Result<()> {
-    let static_config = StaticConfig {
-        base_url: "https://mysite.com".to_string(),
-        routes: vec!["/".to_string(), "/about".to_string()],
-        ..Default::default()
-    };
-    
-    let project_config = RuitlConfig::default();
-    let generator = StaticGenerator::new(static_config, project_config)?;
-    
-    let stats = generator.generate(Path::new("dist")).await?;
-    println!("Generated {} pages", stats.pages_generated);
-    
-    Ok(())
-}
-```
-
-## 🛠️ CLI Tools
-
-RUITL comes with a powerful CLI for development and deployment:
-
-### Create a New Project
+Run the demo to see RUITL in action:
 
 ```bash
-ruitl new my-app
-cd my-app
+git clone <repository>
+cd ruitl
+cargo run --example template_compiler_demo
 ```
 
-### Start Development Server
+This example shows:
+- Template syntax examples
+- Generated code structure
+- Build process workflow
+- Component usage patterns
+
+## 🛠️ Development Workflow
+
+1. **Write Templates**: Create `.ruitl` files in `templates/` directory
+2. **Build**: Run `cargo build` to compile templates
+3. **Import**: Use generated components in your Rust code
+4. **Iterate**: Templates recompile automatically on changes
 
 ```bash
-ruitl dev
-# Server starts at http://localhost:3000 with hot reload
+# Create new template
+echo 'component Hello { props { name: String } }
+ruitl Hello(name: String) { <h1>Hello, {name}!</h1> }' > templates/Hello.ruitl
+
+# Compile
+cargo build
+
+# Use in your code
+# let hello = Hello;
+# let props = HelloProps { name: "World".to_string() };
+# let html = hello.render(&props, &context)?;
 ```
 
-### Build for Production
+## 📊 Current Status
 
-```bash
-ruitl build --target web --minify
-```
+### ✅ Working Features
 
-### Generate Static Site
+- [x] Build script template compilation
+- [x] CLI template compilation
+- [x] Basic template syntax (components, props, templates)
+- [x] Type-safe props with defaults
+- [x] Expression interpolation
+- [x] HTML element generation
+- [x] Component trait implementation
+- [x] Cargo integration
 
-```bash
-ruitl static --out-dir dist --base-url https://mysite.com
-```
+### 🚧 Coming Soon
 
-### Add Components
+- [ ] Conditional rendering (`if/else` statements)
+- [ ] Loop rendering (`for` loops)
+- [ ] Component composition (`@Component` syntax)
+- [ ] Pattern matching (`match` expressions)
+- [ ] Import statements
 
-```bash
-ruitl add component Button
-ruitl add page About
-ruitl add layout MainLayout
-```
+### 🎯 Roadmap
 
-## 📁 Project Structure
+- [ ] Advanced template features
+- [ ] Hot reload development mode
+- [ ] IDE support and syntax highlighting
+- [ ] Performance optimizations
+- [ ] Template inheritance
+- [ ] Server-side streaming
 
-```
-my-ruitl-app/
-├── src/
-│   ├── main.rs
-│   ├── components/
-│   │   ├── button.rs
-│   │   └── navbar.rs
-│   └── pages/
-│       ├── index.rs
-│       └── about.rs
-├── templates/
-│   ├── base.html
-│   └── layout.html
-├── static/
-│   ├── style.css
-│   └── images/
-├── ruitl.toml
-└── Cargo.toml
-```
+## 🔧 Configuration
 
-## ⚙️ Configuration
-
-Configure your project with `ruitl.toml`:
+Configure template compilation in your `Cargo.toml`:
 
 ```toml
-[project]
-name = "my-app"
-version = "0.1.0"
-description = "My RUITL application"
-
-[build]
-src_dir = "src"
-out_dir = "dist"
-minify = true
-source_maps = false
-
-[dev]
-port = 3000
-host = "localhost"
-hot_reload = true
-open = true
-
-[static]
-base_url = "/"
-generate_sitemap = true
-generate_robots = true
-
-[ssr]
-port = 8080
-host = "0.0.0.0"
-cache = true
+[package.metadata.ruitl]
+template_dir = "templates"
+generated_dir = "generated"
 ```
 
-## 🎯 Deployment
+## 🤔 FAQ
 
-### Docker
+**Q: How does RUITL compare to other templating solutions?**
+A: RUITL compiles templates to native Rust code at build time, providing zero runtime overhead and full type safety.
 
-```dockerfile
-FROM rust:1.70 as builder
-WORKDIR /app
-COPY . .
-RUN ruitl build --target server --mode release
+**Q: Can I use existing Rust code in templates?**
+A: Yes! Templates support arbitrary Rust expressions and function calls.
 
-FROM debian:bullseye-slim
-RUN apt-get update && apt-get install -y ca-certificates
-COPY --from=builder /app/dist/server /usr/local/bin/
-EXPOSE 8080
-CMD ["server"]
-```
+**Q: Is RUITL production ready?**
+A: Basic functionality works well, but advanced features are still in development. Perfect for experimentation and simple use cases.
 
-### Serverless (AWS Lambda)
-
-```bash
-ruitl build --target serverless
-# Deploy dist/lambda.zip to AWS Lambda
-```
-
-### Static Hosting
-
-```bash
-ruitl static --out-dir dist
-# Upload dist/ folder to any static host (Netlify, Vercel, S3, etc.)
-```
+**Q: How does performance compare to runtime templating?**
+A: Since templates compile to native Rust code, performance is excellent with no template parsing overhead.
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+We welcome contributions! Areas where help is needed:
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+- Implementing conditional rendering
+- Adding loop support
+- Improving error messages
+- Writing documentation
+- Creating examples
+
+See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for detailed status.
 
 ## 📝 License
 
-This project is licensed under either of
+Licensed under either of
 
-- Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
-- MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+- MIT license ([LICENSE-MIT](LICENSE-MIT))
 
 at your option.
 
 ## 🙏 Acknowledgments
 
-- Inspired by modern web frameworks like Next.js and SvelteKit
-- Built on the shoulders of the amazing Rust ecosystem
-- Special thanks to the Rust community for continuous support
-
-## 📊 Benchmarks
-
-RUITL is designed for performance:
-
-- **Server-side rendering**: ~10x faster than Node.js alternatives
-- **Static generation**: Processes 1000+ pages in seconds
-- **Memory usage**: Minimal footprint with Rust's zero-cost abstractions
-- **Bundle size**: No JavaScript runtime = smaller bundles
-
-## 🔮 Roadmap
-
-- [ ] WebAssembly client-side hydration
-- [ ] CSS-in-Rust styling system
-- [ ] Database integration helpers
-- [ ] Form handling utilities
-- [ ] Internationalization support
-- [ ] Plugin ecosystem
-- [ ] Visual component editor
+- Inspired by [Templ](https://templ.guide/) for Go
+- Built with the amazing Rust ecosystem
+- Thanks to early contributors and testers
 
 ---
 
-**Made with ❤️ and 🦀 by the RUITL team**
+**RUITL: Compile-time templates for Rust 🦀**
+
+*Want to contribute? Check out our [issues](https://github.com/chrisolson/ruitl/issues) or start with the [implementation status](IMPLEMENTATION_STATUS.md).*

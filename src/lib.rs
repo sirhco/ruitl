@@ -32,39 +32,24 @@
 //! }
 //! ```
 
-pub mod build;
 pub mod cli;
+pub mod codegen;
 pub mod component;
 pub mod config;
 pub mod error;
 pub mod html;
-pub mod macros;
-pub mod render;
-pub mod router;
-pub mod server;
-pub mod static_gen;
-pub mod template;
+pub mod parser;
 
 // Re-export commonly used items
 pub use component::{Component, ComponentContext, ComponentProps, EmptyProps};
 pub use error::{Result, RuitlError};
 pub use html::{Html, HtmlAttribute, HtmlElement};
-pub use render::{RenderContext, RenderOptions, RenderTarget, Renderer};
-pub use router::{RouteContext, RouteResponse};
-pub use template::{Template, TemplateEngine};
-
-// Proc macro re-exports
-pub use ruitl_macros::*;
 
 /// Prelude module for convenient imports
 pub mod prelude {
     pub use crate::component::{Component, ComponentContext, ComponentProps, EmptyProps};
     pub use crate::error::{Result, RuitlError};
     pub use crate::html::{Html, HtmlAttribute, HtmlElement};
-    pub use crate::render::{RenderContext, RenderOptions, RenderTarget, Renderer};
-    pub use crate::router::{RouteContext, RouteResponse};
-    pub use crate::template::{Template, TemplateEngine};
-    pub use ruitl_macros::*;
 
     // Common std imports for templates
     pub use std::collections::HashMap;

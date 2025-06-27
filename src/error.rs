@@ -50,6 +50,14 @@ pub enum RuitlError {
     #[error("TOML error: {0}")]
     Toml(#[from] toml::de::Error),
 
+    /// Template parsing errors
+    #[error("Parse error: {message}")]
+    Parse { message: String },
+
+    /// Code generation errors
+    #[error("Code generation error: {message}")]
+    Codegen { message: String },
+
     /// HTTP errors
     #[error("HTTP error: {0}")]
     Http(#[from] hyper::Error),
@@ -117,6 +125,20 @@ impl RuitlError {
     /// Create a new route error
     pub fn route<S: Into<String>>(message: S) -> Self {
         Self::Route {
+            message: message.into(),
+        }
+    }
+
+    /// Create a new parse error
+    pub fn parse<S: Into<String>>(message: S) -> Self {
+        Self::Parse {
+            message: message.into(),
+        }
+    }
+
+    /// Create a new code generation error
+    pub fn codegen<S: Into<String>>(message: S) -> Self {
+        Self::Codegen {
             message: message.into(),
         }
     }

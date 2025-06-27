@@ -119,6 +119,20 @@ impl HtmlElement {
         self
     }
 
+    /// Add an attribute conditionally
+    pub fn attr_if<K: Into<String>, V: Into<String>>(
+        mut self,
+        key: K,
+        condition: bool,
+        value: V,
+    ) -> Self {
+        if condition {
+            self.attributes
+                .insert(key.into(), HtmlAttribute::Value(value.into()));
+        }
+        self
+    }
+
     /// Add multiple children
     pub fn children<I>(mut self, children: I) -> Self
     where
@@ -267,6 +281,13 @@ impl Html {
 }
 
 impl HtmlElement {
+    /// Render the element to a string
+    pub fn render(&self) -> String {
+        let mut output = String::new();
+        self.render_to(&mut output).unwrap_or_default();
+        output
+    }
+
     /// Render the element to a writer
     pub fn render_to<W: Write>(&self, writer: &mut W) -> Result<()> {
         // Opening tag
@@ -550,10 +571,10 @@ mod tests {
     fn test_nested_elements() {
         let element = div()
             .class("container")
-            .child(h1().text("Title"))
-            .child(p().text("Content"));
+            .child(Html::Element(h1().text("Title")))
+            .child(Html::Element(p().text("Content")));
 
-        let html = element.render();
+        let html = Html::Element(element).render();
         assert!(html.contains(r#"<div class="container">"#));
         assert!(html.contains("<h1>Title</h1>"));
         assert!(html.contains("<p>Content</p>"));
@@ -606,7 +627,7 @@ mod tests {
     fn test_text_content() {
         let element = div()
             .child(text("Hello "))
-            .child(span().text("world"))
+            .child(Html::Element(span().text("world")))
             .child(text("!"));
 
         let html = Html::Element(element);

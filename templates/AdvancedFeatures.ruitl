@@ -1,0 +1,68 @@
+// AdvancedFeatures.ruitl - Test template for conditional rendering and loops
+component AdvancedFeatures {
+    props {
+        title: String,
+        items: Vec<String>,
+        show_header: bool = true,
+        user_role: String = "guest",
+        count: usize = 0,
+    }
+}
+
+ruitl AdvancedFeatures(title: String, items: Vec<String>, show_header: bool, user_role: String, count: usize) {
+    <div class="advanced-features">
+        if show_header {
+            <header class="header">
+                <h1>{title}</h1>
+                if user_role == "admin" {
+                    <span class="badge admin">Administrator</span>
+                } else {
+                    <span class="badge user">User</span>
+                }
+            </header>
+        }
+
+        <main class="content">
+            if count > 0 {
+                <p>You have {count} items to display:</p>
+
+                if !items.is_empty() {
+                    <ul class="item-list">
+                        for item in items {
+                            <li class="item">
+                                <span class="item-text">{item}</span>
+                                if user_role == "admin" {
+                                    <button class="delete-btn">Delete</button>
+                                }
+                            </li>
+                        }
+                    </ul>
+                } else {
+                    <p class="empty-message">No items available</p>
+                }
+            } else {
+                <div class="welcome">
+                    <h2>Welcome!</h2>
+                    <p>Get started by adding some items.</p>
+                </div>
+            }
+        </main>
+
+        <footer class="footer">
+            <p>
+                if count == 1 {
+                    <span>You have 1 item</span>
+                } else {
+                    <span>You have {count} items</span>
+                }
+            </p>
+
+            if user_role == "admin" {
+                <div class="admin-controls">
+                    <button class="btn btn-primary">Add Item</button>
+                    <button class="btn btn-secondary">Manage Users</button>
+                </div>
+            }
+        </footer>
+    </div>
+}

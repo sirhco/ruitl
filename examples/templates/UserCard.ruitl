@@ -1,0 +1,234 @@
+// RUITL UserCard Component
+// This demonstrates complex RUITL template syntax with conditionals, loops, and component composition
+
+import "std::collections" { HashMap, Vec }
+
+component UserCard {
+    props {
+        user: User,
+        show_actions: bool = true,
+        show_contact: bool = false,
+        theme: String = "default",
+        size: String = "medium",
+    }
+}
+
+component StatusBadge {
+    props {
+        status: String,
+        size: String = "small",
+    }
+}
+
+component SkillTag {
+    props {
+        skill: String,
+        level: String = "beginner",
+    }
+}
+
+ruitl UserCard(props: UserCardProps) {
+    <div class={format!("user-card user-card-{} user-card-{}", props.theme, props.size)}>
+        <div class="user-card-header">
+            <div class="user-avatar">
+                if let Some(avatar) = props.user.avatar_url {
+                    <img
+                        src={avatar}
+                        alt={format!("{}'s avatar", props.user.name)}
+                        class="avatar-image"
+                    />
+                } else {
+                    <div class="avatar-placeholder">
+                        <span class="avatar-initials">
+                            {props.user.name.chars().take(2).collect::<String>().to_uppercase()}
+                        </span>
+                    </div>
+                }
+            </div>
+
+            <div class="user-info">
+                <h3 class="user-name">{props.user.name}</h3>
+                if let Some(title) = props.user.title {
+                    <p class="user-title">{title}</p>
+                }
+
+                <div class="user-status">
+                    @StatusBadge(
+                        status: props.user.status.clone(),
+                        size: "small"
+                    )
+
+                    if props.user.is_verified {
+                        <span class="verified-badge" title="Verified user">
+                            <i class="icon icon-verified"></i>
+                        </span>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="user-card-body">
+            if let Some(bio) = props.user.bio {
+                <div class="user-bio">
+                    <p>{bio}</p>
+                </div>
+            }
+
+            if !props.user.skills.is_empty() {
+                <div class="user-skills">
+                    <h4 class="skills-title">Skills</h4>
+                    <div class="skills-list">
+                        for skill in props.user.skills {
+                            @SkillTag(
+                                skill: skill.name.clone(),
+                                level: skill.level.clone()
+                            )
+                        }
+                    </div>
+                </div>
+            }
+
+            if props.show_contact && (props.user.email.is_some() || props.user.website.is_some()) {
+                <div class="user-contact">
+                    <h4 class="contact-title">Contact</h4>
+                    <div class="contact-list">
+                        if let Some(email) = props.user.email {
+                            <a href={format!("mailto:{}", email)} class="contact-link contact-email">
+                                <i class="icon icon-email"></i>
+                                <span>{email}</span>
+                            </a>
+                        }
+
+                        if let Some(website) = props.user.website {
+                            <a href={website} class="contact-link contact-website" target="_blank" rel="noopener noreferrer">
+                                <i class="icon icon-link"></i>
+                                <span>Website</span>
+                            </a>
+                        }
+                    </div>
+                </div>
+            }
+
+            <div class="user-stats">
+                <div class="stat">
+                    <span class="stat-value">{props.user.follower_count}</span>
+                    <span class="stat-label">Followers</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-value">{props.user.following_count}</span>
+                    <span class="stat-label">Following</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-value">{props.user.post_count}</span>
+                    <span class="stat-label">Posts</span>
+                </div>
+            </div>
+        </div>
+
+        if props.show_actions {
+            <div class="user-card-actions">
+                match props.user.relationship {
+                    "self" => {
+                        @Button(
+                            text: "Edit Profile",
+                            variant: "secondary",
+                            size: "small",
+                            icon: Some("edit".to_string())
+                        )
+                    }
+                    "following" => {
+                        @Button(
+                            text: "Unfollow",
+                            variant: "outline",
+                            size: "small"
+                        )
+                        @Button(
+                            text: "Message",
+                            variant: "primary",
+                            size: "small",
+                            icon: Some("message".to_string())
+                        )
+                    }
+                    "not_following" => {
+                        @Button(
+                            text: "Follow",
+                            variant: "primary",
+                            size: "small",
+                            icon: Some("plus".to_string())
+                        )
+                        @Button(
+                            text: "Message",
+                            variant: "secondary",
+                            size: "small",
+                            icon: Some("message".to_string())
+                        )
+                    }
+                    "blocked" => {
+                        @Button(
+                            text: "Unblock",
+                            variant: "danger",
+                            size: "small"
+                        )
+                    }
+                    _ => {
+                        @Button(
+                            text: "View Profile",
+                            variant: "secondary",
+                            size: "small"
+                        )
+                    }
+                }
+            </div>
+        }
+
+        if props.user.is_premium {
+            <div class="premium-indicator">
+                <i class="icon icon-star"></i>
+                <span>Premium Member</span>
+            </div>
+        }
+    </div>
+}
+
+ruitl StatusBadge(props: StatusBadgeProps) {
+    <span class={format!("status-badge status-badge-{} status-badge-{}", props.status, props.size)}>
+        match props.status {
+            "online" => {
+                <i class="status-icon icon-circle-filled text-green"></i>
+                <span>Online</span>
+            }
+            "away" => {
+                <i class="status-icon icon-circle-filled text-yellow"></i>
+                <span>Away</span>
+            }
+            "busy" => {
+                <i class="status-icon icon-circle-filled text-red"></i>
+                <span>Busy</span>
+            }
+            "offline" => {
+                <i class="status-icon icon-circle text-gray"></i>
+                <span>Offline</span>
+            }
+            _ => {
+                <i class="status-icon icon-circle text-gray"></i>
+                <span>Unknown</span>
+            }
+        }
+    </span>
+}
+
+ruitl SkillTag(props: SkillTagProps) {
+    <span class={format!("skill-tag skill-level-{}", props.level)}>
+        <span class="skill-name">{props.skill}</span>
+        if props.level != "beginner" {
+            <span class="skill-level">
+                match props.level {
+                    "expert" => "★★★"
+                    "intermediate" => "★★☆"
+                    "advanced" => "★★★"
+                    _ => "★☆☆"
+                }
+            </span>
+        }
+    </span>
+}

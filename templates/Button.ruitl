@@ -1,0 +1,14 @@
+// Button.ruitl - A simple button component
+
+component Button {
+    props {
+        text: String,
+        variant: String = "primary",
+    }
+}
+
+ruitl Button(text: String, variant: String) {
+    <button class={format!("btn btn-{}", variant)} type="button">
+        {text}
+    </button>
+}

@@ -1,0 +1,16 @@
+// SimpleIf.ruitl - Simple test template for if statements
+component SimpleIf {
+    props {
+        show_message: bool,
+    }
+}
+
+ruitl SimpleIf(show_message: bool) {
+    <div>
+        if show_message {
+            <p>Hello World!</p>
+        } else {
+            <p>No message to show</p>
+        }
+    </div>
+}
