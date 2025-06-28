@@ -336,7 +336,7 @@ impl CodeGenerator {
                     ))
                 })?;
                 Ok(quote! {
-                    attr_if(#attr_name, #condition, #attr_name)
+                    attr_optional(#attr_name, &#condition)
                 })
             }
         }
@@ -554,12 +554,21 @@ impl CodeGenerator {
 /// Helper extension for HtmlElement to support conditional attributes
 pub trait HtmlElementExt {
     fn attr_if(self, name: &str, condition: bool, value: &str) -> Self;
+    fn attr_optional<K: Into<String>>(self, name: K, value: &Option<String>) -> Self;
 }
 
 impl HtmlElementExt for crate::html::HtmlElement {
     fn attr_if(self, name: &str, condition: bool, value: &str) -> Self {
         if condition {
             self.attr(name, value)
+        } else {
+            self
+        }
+    }
+
+    fn attr_optional<K: Into<String>>(self, name: K, value: &Option<String>) -> Self {
+        if let Some(ref val) = value {
+            self.attr(name, val)
         } else {
             self
         }

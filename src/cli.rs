@@ -537,7 +537,15 @@ Thumbs.db
         let readme = format!(
             r#"# {}
 
-A RUITL (Rust UI Template Language) project for building type-safe HTML components.
+A RUITL (Rust UI Template Language) project for building type-safe HTML components with server-side rendering.
+
+## 🚀 Features
+
+- **Component-Based Rendering**: Server handlers use generated RUITL components (not static HTML!)
+- **Type Safety**: Full Rust type checking for templates and props
+- **Zero Runtime**: Templates compiled to efficient Rust code at build time
+- **Hot Reload**: Watch mode for development workflow
+- **Ready to Use**: Example templates and working server included
 
 ## Getting Started
 
@@ -545,72 +553,105 @@ A RUITL (Rust UI Template Language) project for building type-safe HTML componen
 
 - Rust 1.70 or later
 
-### Building
+### Quick Start
 
 ```bash
-# Compile templates (using included RUITL binary)
+# 1. Compile templates (generates Rust components)
 cargo run --bin ruitl -- compile
 
-# Build the project
-cargo build
+# 2. Start the server (uses generated components!)
+cargo run
+
+# 3. Visit http://localhost:3000
 ```
 
-### Running
+### Development Workflow
 
 ```bash
-# Run the application
+# Watch for template changes and auto-recompile
+cargo run --bin ruitl -- compile --watch
+
+# In another terminal, run the server
 cargo run
 ```
 
-### Development
+## 🏗️ How It Works
 
-```bash
-# Watch for template changes and recompile
-cargo run --bin ruitl -- compile --watch
-```
-
-## RUITL Binary
-
-This project includes a local RUITL binary for template compilation. You don't need to install RUITL separately - everything you need is included in the project dependencies.
+1. **Templates** in `templates/` are written in RUITL syntax
+2. **Compilation** generates Rust structs and render functions in `generated/`
+3. **Server handlers** import and use these generated components
+4. **Type-safe rendering** produces HTML at runtime
 
 ## Project Structure
 
 ```
 {}
-├── src/           # Rust source code
-├── bin/           # RUITL CLI binary wrapper
-├── templates/     # RUITL template files
-├── generated/     # Generated Rust code (auto-generated)
-├── static/        # Static assets (CSS, JS, images)
-├── ruitl.toml     # RUITL configuration
-└── Cargo.toml     # Rust project configuration
+├── src/
+│   ├── main.rs        # Server with component-based handlers
+│   └── handlers/      # HTTP handlers using RUITL components
+├── bin/ruitl.rs       # RUITL CLI binary wrapper
+├── templates/         # RUITL template files (.ruitl)
+│   ├── Button.ruitl   # Interactive button component
+│   ├── Card.ruitl     # Content card component
+│   ├── Layout.ruitl   # Basic HTML layout
+│   └── Page.ruitl     # Complete page with navigation
+├── generated/         # Generated Rust code (auto-generated)
+├── static/css/        # CSS styles
+├── ruitl.toml         # RUITL configuration
+└── Cargo.toml         # Rust project configuration
 ```
 
-## Templates
+## 🧩 Template Examples
 
-RUITL templates are located in the `templates/` directory. They are compiled to Rust code in the `generated/` directory.
-
-Example template (`templates/Button.ruitl`):
+### Button Component (`templates/Button.ruitl`)
 
 ```ruitl
 component Button {{
     props {{
         text: String,
         variant: String = "primary",
+        size: String = "medium",
         disabled: bool = false,
+        onclick: String?,
     }}
 }}
 
 ruitl Button(props: ButtonProps) {{
     <button
-        class={{format!("btn btn-{{}}", props.variant)}}
+        class={{format!("btn btn-{{}} btn-{{}}", props.variant, props.size)}}
         disabled?={{props.disabled}}
+        onclick?={{props.onclick}}
         type="button"
     >
         {{props.text}}
     </button>
 }}
 ```
+
+### Usage in Handler
+
+```rust
+// In src/handlers/mod.rs - components are imported and used!
+use crate::generated::{{Button, ButtonProps}};
+
+let button = Button;
+let props = ButtonProps {{
+    text: "Click Me".to_string(),
+    variant: "primary".to_string(),
+    // ... other props
+}};
+
+let html = button.render(&props, &context)?;
+```
+
+## 🎯 What's Different?
+
+Unlike typical web frameworks, this project demonstrates:
+
+- **No Runtime Templates**: Templates are compiled away at build time
+- **Component Imports**: Server code imports generated Rust structs
+- **Type-Safe Props**: Component properties are validated at compile time
+- **Direct Rendering**: Components render to HTML strings efficiently
 
 ## Learn More
 
@@ -646,7 +687,7 @@ ruitl Button(props: ButtonProps) {
     <button
         class={format!("btn btn-{} btn-{}", props.variant, props.size)}
         disabled?={props.disabled}
-        onclick={props.onclick.as_deref().unwrap_or("")}
+        onclick?={props.onclick}
         type="button"
     >
         {props.text}
@@ -694,30 +735,74 @@ ruitl Card(props: CardProps) {
 
         // Generate Layout.ruitl
         let layout_template = r#"// RUITL Layout Component
-// Example demonstrating layout components and children
+// Example demonstrating flexible layout components
 
 component Layout {
     props {
         title: String,
         children: String,
+        head_content: String?,
     }
 }
 
 ruitl Layout(props: LayoutProps) {
-    <html>
+    <html lang="en">
         <head>
+            <meta charset="UTF-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
             <title>{props.title}</title>
+            if let Some(head_content) = &props.head_content {
+                {head_content}
+            }
         </head>
-        <body>
-            <h1>{props.title}</h1>
-            {props.children}
-        </body>
+        {props.children}
     </html>
 }
 "#;
 
         fs::write(project_dir.join("templates/Layout.ruitl"), layout_template)
             .map_err(|e| RuitlError::config(format!("Failed to write Layout.ruitl: {}", e)))?;
+
+        // Generate Page.ruitl
+        let page_template = r#"// RUITL Page Component
+// Example demonstrating complete page structure with navigation
+
+component Page {
+    props {
+        title: String,
+        content: String,
+        current_page: String = "home",
+    }
+}
+
+ruitl Page(props: PageProps) {
+    <!DOCTYPE html>
+    <html lang="en">
+        <head>
+            <meta charset="UTF-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+            <title>{props.title}</title>
+            <link rel="stylesheet" href="/static/css/styles.css" />
+        </head>
+        <body>
+            <div class="container">
+                {props.content}
+
+                <nav class="nav">
+                    if props.current_page == "home" {
+                        <span>Home</span> | <a href="/about">About</a>
+                    } else {
+                        <a href="/">Home</a> | <span>About</span>
+                    }
+                </nav>
+            </div>
+        </body>
+    </html>
+}
+"#;
+
+        fs::write(project_dir.join("templates/Page.ruitl"), page_template)
+            .map_err(|e| RuitlError::config(format!("Failed to write Page.ruitl: {}", e)))?;
 
         Ok(())
     }
@@ -1108,12 +1193,46 @@ async fn handle_request(req: Request<Body>) -> Result<Response<Body>, Infallible
 
 use hyper::{{Body, Response, StatusCode}};
 use std::fs;
+use ruitl::{{Component, ComponentContext}};
 
-// Note: Generated components will be available after running `ruitl compile`
-// For now, we use simple HTML responses
+// Import generated components (available after running `ruitl compile`)
+use crate::generated::{{Button, ButtonProps, Card, CardProps}};
 
 pub async fn serve_home() -> Response<Body> {{
-    let html = r#"<!DOCTYPE html>
+    let context = ComponentContext::new();
+
+    // Create a simple card component to demonstrate
+    let card = Card;
+    let card_props = CardProps {{
+        title: "🚀 Fast".to_string(),
+        content: "Compile-time template processing for maximum performance".to_string(),
+        footer: Some("Powered by RUITL components!".to_string()),
+        variant: Some("default".to_string()),
+    }};
+
+    let card_html = match card.render(&card_props, &context) {{
+        Ok(html) => html.render(),
+        Err(e) => return error_response(&format!("Card render error: {{}}", e)),
+    }};
+
+    // Create a button component
+    let button = Button;
+    let button_props = ButtonProps {{
+        text: "Go to About".to_string(),
+        variant: Some("primary".to_string()),
+        size: Some("medium".to_string()),
+        disabled: Some(false),
+        onclick: Some("window.location.href='/about'".to_string()),
+    }};
+
+    let button_html = match button.render(&button_props, &context) {{
+        Ok(html) => html.render(),
+        Err(e) => return error_response(&format!("Button render error: {{}}", e)),
+    }};
+
+    // Create simple HTML structure with rendered components
+    let html = format!(
+        r#"<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -1127,21 +1246,16 @@ pub async fn serve_home() -> Response<Body> {{
         <div class="hero">
             <h2>🚀 Successfully Created RUITL Project</h2>
             <p>You've successfully created a new RUITL project with server support.</p>
+            <p><strong>This page now uses actual RUITL components!</strong></p>
         </div>
 
-        <div class="features">
-            <div class="feature-card">
-                <h3>🚀 Fast</h3>
-                <p>Compile-time template processing for maximum performance</p>
-            </div>
-            <div class="feature-card">
-                <h3>🔒 Type Safe</h3>
-                <p>Full Rust type safety for your templates and components</p>
-            </div>
-            <div class="feature-card">
-                <h3>🎨 Modern</h3>
-                <p>Clean, intuitive syntax for building beautiful UIs</p>
-            </div>
+        <div class="demo-section">
+            <h3>Component Demo</h3>
+            <p>Here's a Card component rendered by RUITL:</p>
+            {{}}
+
+            <p>And here's a Button component:</p>
+            {{}}
         </div>
 
         <div class="next-steps">
@@ -1149,18 +1263,19 @@ pub async fn serve_home() -> Response<Body> {{
             <ol>
                 <li>Edit templates in the <code>templates/</code> directory</li>
                 <li>Run <code>ruitl compile</code> to generate Rust components</li>
-                <li>Replace these handlers with component-based rendering</li>
+                <li>✅ Components are now being used in these handlers!</li>
                 <li>Build and run with <code>cargo run</code></li>
             </ol>
         </div>
 
         <nav class="nav">
-            <a href="/">Home</a> |
-            <a href="/about">About</a>
+            <span>Home</span> | <a href="/about">About</a>
         </nav>
     </div>
 </body>
-</html>"#;
+</html>"#,
+        card_html, button_html
+    );
 
     Response::builder()
         .header("content-type", "text/html")
@@ -1169,7 +1284,40 @@ pub async fn serve_home() -> Response<Body> {{
 }}
 
 pub async fn serve_about() -> Response<Body> {{
-    let html = r#"<!DOCTYPE html>
+    let context = ComponentContext::new();
+
+    // Create about info card
+    let card = Card;
+    let card_props = CardProps {{
+        title: "About This Project".to_string(),
+        content: "This is a RUITL project scaffold that demonstrates component-based architecture, type-safe templates, and server-side rendering.".to_string(),
+        footer: Some("All content rendered by RUITL components!".to_string()),
+        variant: Some("default".to_string()),
+    }};
+
+    let card_html = match card.render(&card_props, &context) {{
+        Ok(html) => html.render(),
+        Err(e) => return error_response(&format!("Card render error: {{}}", e)),
+    }};
+
+    // Create home button
+    let button = Button;
+    let button_props = ButtonProps {{
+        text: "Go Home".to_string(),
+        variant: Some("primary".to_string()),
+        size: Some("medium".to_string()),
+        disabled: Some(false),
+        onclick: Some("window.location.href='/'".to_string()),
+    }};
+
+    let button_html = match button.render(&button_props, &context) {{
+        Ok(html) => html.render(),
+        Err(e) => return error_response(&format!("Button render error: {{}}", e)),
+    }};
+
+    // Create simple HTML structure
+    let html = format!(
+        r#"<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -1182,40 +1330,39 @@ pub async fn serve_about() -> Response<Body> {{
         <h1>About This RUITL Project</h1>
 
         <div class="about-content">
-            <h2>About This Project</h2>
-            <p>This is a RUITL project scaffold that demonstrates:</p>
+            {{}}
+
+            <h3>Features Demonstrated</h3>
             <ul>
                 <li>✅ Component-based architecture</li>
                 <li>✅ Type-safe templates</li>
                 <li>✅ Server-side rendering</li>
+                <li>✅ Generated component usage</li>
                 <li>✅ Static asset serving</li>
-                <li>✅ Hot reload during development</li>
             </ul>
 
-            <h3>Getting Started</h3>
-            <ol>
-                <li>Edit templates in the <code>templates/</code> directory</li>
-                <li>Run <code>ruitl compile</code> to generate Rust code</li>
-                <li>Update handlers to use generated components</li>
-                <li>Build and run with <code>cargo run</code></li>
-            </ol>
-
-            <h3>Template Example</h3>
+            <h3>Template Examples</h3>
             <p>Check out the example templates created in your <code>templates/</code> directory:</p>
             <ul>
-                <li><code>Layout.ruitl</code> - Page layout component</li>
                 <li><code>Button.ruitl</code> - Interactive button component</li>
                 <li><code>Card.ruitl</code> - Content card component</li>
+                <li><code>Layout.ruitl</code> - HTML layout component</li>
+                <li><code>Page.ruitl</code> - Complete page component</li>
             </ul>
+
+            <div style="margin: 20px 0;">
+                {{}}
+            </div>
         </div>
 
         <nav class="nav">
-            <a href="/">Home</a> |
-            <a href="/about">About</a>
+            <a href="/">Home</a> | <span>About</span>
         </nav>
     </div>
 </body>
-</html>"#;
+</html>"#,
+        card_html, button_html
+    );
 
     Response::builder()
         .header("content-type", "text/html")
