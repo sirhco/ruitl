@@ -361,7 +361,12 @@ impl RuitlParser {
         self.skip_whitespace();
 
         if self.check_char('<') {
-            self.parse_element()
+            // Check if this is a DOCTYPE declaration
+            if self.peek_string(9) == "<!DOCTYPE" {
+                self.parse_doctype()
+            } else {
+                self.parse_element()
+            }
         } else if self.check_char('{') {
             self.parse_expression_node()
         } else if self.check_char('@') {
@@ -844,6 +849,44 @@ impl RuitlParser {
         } else {
             self.input[self.position]
         }
+    }
+
+    fn peek_string(&self, len: usize) -> String {
+        if self.position + len > self.input.len() {
+            return String::new();
+        }
+        self.input.iter().skip(self.position).take(len).collect()
+    }
+
+    fn parse_doctype(&mut self) -> Result<TemplateAst> {
+        // Consume the entire DOCTYPE declaration
+        let start_pos = self.position;
+
+        // Move past '<'
+        self.advance();
+
+        // Read until we find the closing '>'
+        while !self.is_at_end() && self.current_char() != '>' {
+            self.advance();
+        }
+
+        if self.is_at_end() {
+            return Err(self.error("Unterminated DOCTYPE declaration"));
+        }
+
+        // Consume the closing '>'
+        self.advance();
+
+        // Extract the full DOCTYPE text
+        let end_pos = self.position;
+        let doctype_text: String = self
+            .input
+            .iter()
+            .skip(start_pos)
+            .take(end_pos - start_pos)
+            .collect();
+
+        Ok(TemplateAst::Text(doctype_text))
     }
 
     fn peek_char(&self) -> char {

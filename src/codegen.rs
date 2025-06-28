@@ -335,9 +335,36 @@ impl CodeGenerator {
                         condition, e
                     ))
                 })?;
-                Ok(quote! {
-                    attr_if(#attr_name, #condition, #attr_name)
-                })
+
+                // Check if this is a known boolean attribute
+                let boolean_attrs = [
+                    "disabled",
+                    "checked",
+                    "selected",
+                    "readonly",
+                    "multiple",
+                    "autofocus",
+                    "autoplay",
+                    "controls",
+                    "defer",
+                    "hidden",
+                    "loop",
+                    "open",
+                    "required",
+                    "reversed",
+                ];
+
+                if boolean_attrs.contains(&attr_name.as_str()) {
+                    // For boolean attributes, use attr_if
+                    Ok(quote! {
+                        attr_if(#attr_name, #condition, #attr_name)
+                    })
+                } else {
+                    // For Option attributes, use attr_optional
+                    Ok(quote! {
+                        attr_optional(#attr_name, &#condition)
+                    })
+                }
             }
         }
     }
@@ -554,12 +581,21 @@ impl CodeGenerator {
 /// Helper extension for HtmlElement to support conditional attributes
 pub trait HtmlElementExt {
     fn attr_if(self, name: &str, condition: bool, value: &str) -> Self;
+    fn attr_optional<K: Into<String>>(self, name: K, value: &Option<String>) -> Self;
 }
 
 impl HtmlElementExt for crate::html::HtmlElement {
     fn attr_if(self, name: &str, condition: bool, value: &str) -> Self {
         if condition {
             self.attr(name, value)
+        } else {
+            self
+        }
+    }
+
+    fn attr_optional<K: Into<String>>(self, name: K, value: &Option<String>) -> Self {
+        if let Some(ref val) = value {
+            self.attr(name, val)
         } else {
             self
         }
