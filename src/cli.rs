@@ -1207,7 +1207,7 @@ pub async fn serve_home() -> Response<Body> {{
         title: "🚀 Fast".to_string(),
         content: "Compile-time template processing for maximum performance".to_string(),
         footer: Some("Powered by RUITL components!".to_string()),
-        variant: Some("default".to_string()),
+        variant: "default".to_string(),
     }};
 
     let card_html = match card.render(&card_props, &context) {{
@@ -1219,9 +1219,9 @@ pub async fn serve_home() -> Response<Body> {{
     let button = Button;
     let button_props = ButtonProps {{
         text: "Go to About".to_string(),
-        variant: Some("primary".to_string()),
-        size: Some("medium".to_string()),
-        disabled: Some(false),
+        variant: "primary".to_string(),
+        size: "medium".to_string(),
+        disabled: false,
         onclick: Some("window.location.href='/about'".to_string()),
     }};
 
@@ -1292,7 +1292,7 @@ pub async fn serve_about() -> Response<Body> {{
         title: "About This Project".to_string(),
         content: "This is a RUITL project scaffold that demonstrates component-based architecture, type-safe templates, and server-side rendering.".to_string(),
         footer: Some("All content rendered by RUITL components!".to_string()),
-        variant: Some("default".to_string()),
+        variant: "default".to_string(),
     }};
 
     let card_html = match card.render(&card_props, &context) {{
@@ -1304,9 +1304,9 @@ pub async fn serve_about() -> Response<Body> {{
     let button = Button;
     let button_props = ButtonProps {{
         text: "Go Home".to_string(),
-        variant: Some("primary".to_string()),
-        size: Some("medium".to_string()),
-        disabled: Some(false),
+        variant: "primary".to_string(),
+        size: "medium".to_string(),
+        disabled: false,
         onclick: Some("window.location.href='/'".to_string()),
     }};
 

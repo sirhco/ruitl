@@ -133,6 +133,15 @@ impl HtmlElement {
         self
     }
 
+    /// Add an optional attribute (only if Some)
+    pub fn attr_optional<K: Into<String>>(mut self, key: K, value: &Option<String>) -> Self {
+        if let Some(ref val) = value {
+            self.attributes
+                .insert(key.into(), HtmlAttribute::Value(val.clone()));
+        }
+        self
+    }
+
     /// Add multiple children
     pub fn children<I>(mut self, children: I) -> Self
     where

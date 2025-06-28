@@ -335,9 +335,36 @@ impl CodeGenerator {
                         condition, e
                     ))
                 })?;
-                Ok(quote! {
-                    attr_optional(#attr_name, &#condition)
-                })
+
+                // Check if this is a known boolean attribute
+                let boolean_attrs = [
+                    "disabled",
+                    "checked",
+                    "selected",
+                    "readonly",
+                    "multiple",
+                    "autofocus",
+                    "autoplay",
+                    "controls",
+                    "defer",
+                    "hidden",
+                    "loop",
+                    "open",
+                    "required",
+                    "reversed",
+                ];
+
+                if boolean_attrs.contains(&attr_name.as_str()) {
+                    // For boolean attributes, use attr_if
+                    Ok(quote! {
+                        attr_if(#attr_name, #condition, #attr_name)
+                    })
+                } else {
+                    // For Option attributes, use attr_optional
+                    Ok(quote! {
+                        attr_optional(#attr_name, &#condition)
+                    })
+                }
             }
         }
     }
