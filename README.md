@@ -28,7 +28,7 @@ Clone and explore the RUITL repository with built-in examples:
 
 ```bash
 # Clone RUITL repository
-git clone https://github.com/chrisolson/ruitl.git
+git clone https://github.com/sirhco/ruitl.git
 cd ruitl
 
 # Build RUITL
@@ -438,7 +438,7 @@ For contributing to RUITL or using repository examples:
 
 ```bash
 # 1. Clone and build RUITL
-git clone https://github.com/chrisolson/ruitl.git
+git clone https://github.com/sirhco/ruitl.git
 cd ruitl
 cargo build
 
@@ -659,7 +659,7 @@ The RUITL repository includes several built-in examples you can run immediately:
 
 ```bash
 # Clone and build RUITL
-git clone https://github.com/chrisolson/ruitl.git
+git clone https://github.com/sirhco/ruitl.git
 cd ruitl
 cargo build
 
