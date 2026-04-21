@@ -1,0 +1,78 @@
+==================
+simple ruitl
+==================
+
+ruitl Hello(name: String) {
+    <p>Hello</p>
+}
+
+---
+
+(source_file
+  (ruitl_declaration
+    name: (identifier)
+    (param_def
+      name: (identifier)
+      type: (type_expr (identifier)))
+    (element
+      tag: (tag_name)
+      (text)
+      closing_tag: (tag_name))))
+
+==================
+ruitl with expression interpolation
+==================
+
+ruitl Greet(name: String) {
+    <p>{name}</p>
+}
+
+---
+
+(source_file
+  (ruitl_declaration
+    name: (identifier)
+    (param_def
+      name: (identifier)
+      type: (type_expr (identifier)))
+    (element
+      tag: (tag_name)
+      (expression_node
+        expr: (rust_expression))
+      closing_tag: (tag_name))))
+
+==================
+ruitl with if/else
+==================
+
+ruitl Gate(open: bool) {
+    <div>
+        if open {
+            <span>on</span>
+        } else {
+            <span>off</span>
+        }
+    </div>
+}
+
+---
+
+(source_file
+  (ruitl_declaration
+    name: (identifier)
+    (param_def
+      name: (identifier)
+      type: (type_expr (identifier)))
+    (element
+      tag: (tag_name)
+      (if_statement
+        condition: (rust_expression)
+        (element
+          tag: (tag_name)
+          (text)
+          closing_tag: (tag_name))
+        (element
+          tag: (tag_name)
+          (text)
+          closing_tag: (tag_name)))
+      closing_tag: (tag_name))))
