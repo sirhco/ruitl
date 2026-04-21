@@ -19,19 +19,39 @@
 //!   - Format on save (needs AST → .ruitl pretty-printer)
 
 use dashmap::DashMap;
-use ruitl_compiler::{format, parse_str, CodeGenerator, CompileError};
+use ruitl_compiler::{format, parse_str, CodeGenerator, CompileError, PropDef};
 use std::sync::Arc;
 use tower_lsp::jsonrpc::Result as RpcResult;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
+/// One component's declaration metadata as known by the LSP. Enough to
+/// answer completion, hover, and go-to-definition queries without
+/// re-parsing the source document every time.
+#[derive(Debug, Clone)]
+pub struct IndexedComponent {
+    pub name: String,
+    pub props: Vec<PropDef>,
+    /// 0-indexed `(line, column)` where the component name appears in
+    /// the source file. Used as the go-to-definition target.
+    pub decl_position: (u32, u32),
+}
+
+/// Per-document index entry: every component declared in that document.
+/// A DashMap keyed by document URI gives us a simple workspace-wide
+/// index — reconstructed on every parse, so it's always in sync with
+/// the latest buffer contents.
+pub type DocumentIndex = Vec<IndexedComponent>;
+
 /// LSP backend. `Client` is the outbound handle for server→editor
 /// notifications (diagnostics, log messages); `documents` keeps the latest
-/// full text for each open file.
+/// full text for each open file; `index` maps each URI to its component
+/// metadata for completion / hover / go-to-definition.
 #[derive(Clone)]
 pub struct Backend {
     pub client: Client,
     pub documents: Arc<DashMap<Url, String>>,
+    pub index: Arc<DashMap<Url, DocumentIndex>>,
 }
 
 impl Backend {
@@ -39,12 +59,79 @@ impl Backend {
         Self {
             client,
             documents: Arc::new(DashMap::new()),
+            index: Arc::new(DashMap::new()),
         }
     }
 
-    /// Parse the text, run codegen to surface codegen-only errors (e.g.
-    /// generic type-bound issues), and publish diagnostics for the URI.
+    /// Rebuild the symbol index for a single document. Called on every
+    /// successful parse; failed parses clear the entry so stale symbols
+    /// don't linger.
+    fn reindex(&self, uri: &Url, text: &str) {
+        match parse_str(text) {
+            Ok(file) => {
+                let entries: DocumentIndex = file
+                    .components
+                    .iter()
+                    .map(|c| IndexedComponent {
+                        name: c.name.clone(),
+                        props: c.props.clone(),
+                        decl_position: locate_component_decl(text, &c.name)
+                            .unwrap_or((0, 0)),
+                    })
+                    .collect();
+                self.index.insert(uri.clone(), entries);
+            }
+            Err(_) => {
+                self.index.remove(uri);
+            }
+        }
+    }
+
+    /// Walk every document's index and return all components whose name
+    /// matches `name`. Returns `(uri, IndexedComponent)` pairs.
+    fn lookup_component(&self, name: &str) -> Vec<(Url, IndexedComponent)> {
+        let mut hits = Vec::new();
+        for entry in self.index.iter() {
+            for comp in entry.value() {
+                if comp.name == name {
+                    hits.push((entry.key().clone(), comp.clone()));
+                }
+            }
+        }
+        hits
+    }
+
+    /// Build a completion-item list for the declared props of the first
+    /// component named `name` found in the workspace index. Used by the
+    /// completion handler when the cursor is inside `@Name(...)`.
+    fn prop_completion_items(&self, name: &str) -> Vec<CompletionItem> {
+        let hits = self.lookup_component(name);
+        let Some((_, comp)) = hits.into_iter().next() else {
+            return Vec::new();
+        };
+        comp.props
+            .iter()
+            .map(|p| {
+                let ty = if p.optional {
+                    format!("Option<{}>", p.prop_type)
+                } else {
+                    p.prop_type.clone()
+                };
+                CompletionItem {
+                    label: p.name.clone(),
+                    kind: Some(CompletionItemKind::FIELD),
+                    detail: Some(format!("{}: {}", p.name, ty)),
+                    insert_text: Some(format!("{}: ", p.name)),
+                    ..Default::default()
+                }
+            })
+            .collect()
+    }
+
+    /// Parse the text, rebuild the symbol index, run codegen to surface
+    /// codegen-only errors, and publish diagnostics for the URI.
     async fn analyze_and_publish(&self, uri: Url, text: String) {
+        self.reindex(&uri, &text);
         let diagnostics = diagnose(&text);
         self.client
             .publish_diagnostics(uri, diagnostics, None)
@@ -113,6 +200,184 @@ fn char_before_position(text: &str, pos: Position) -> Option<char> {
 
 fn trigger_slice(c: char) -> String {
     c.to_string()
+}
+
+/// Return the identifier token at `pos`. If `prefix` is `Some('@')`, the
+/// token must be preceded by `@` (i.e. a component-invocation reference
+/// or a `@Name` in a component declaration is NOT matched, only the
+/// invocation form). Returns None if no identifier covers `pos`.
+pub fn token_at_position(text: &str, pos: Position, prefix: Option<char>) -> Option<String> {
+    let offset = position_to_offset(text, pos)?;
+    let bytes = text.as_bytes();
+
+    // Find identifier start by walking left.
+    let mut start = offset.min(bytes.len());
+    while start > 0 {
+        let prev = bytes[start - 1];
+        if prev.is_ascii_alphanumeric() || prev == b'_' {
+            start -= 1;
+        } else {
+            break;
+        }
+    }
+    // Walk right to find identifier end.
+    let mut end = offset.min(bytes.len());
+    while end < bytes.len() {
+        let b = bytes[end];
+        if b.is_ascii_alphanumeric() || b == b'_' {
+            end += 1;
+        } else {
+            break;
+        }
+    }
+    if start >= end {
+        return None;
+    }
+    if let Some(p) = prefix {
+        if start == 0 || bytes[start - 1] as char != p {
+            return None;
+        }
+    }
+    Some(text[start..end].to_string())
+}
+
+/// Render a component's metadata as GitHub-style markdown for hover.
+fn render_component_markdown(comp: &IndexedComponent) -> String {
+    let mut out = format!("**`@{}`** — RUITL component\n\n", comp.name);
+    if comp.props.is_empty() {
+        out.push_str("_No props._");
+        return out;
+    }
+    out.push_str("```\nprops {\n");
+    for p in &comp.props {
+        let ty = if p.optional {
+            format!("Option<{}>", p.prop_type)
+        } else {
+            p.prop_type.clone()
+        };
+        let suffix = match (&p.default_value, p.optional) {
+            (Some(d), _) => format!(" = {}", d.trim()),
+            (None, true) => String::new(), // Option<T> self-documents
+            (None, false) => String::new(),
+        };
+        out.push_str(&format!("    {}: {}{},\n", p.name, ty, suffix));
+    }
+    out.push_str("}\n```");
+    out
+}
+
+/// If the cursor at `pos` is inside an `@Component(...)` argument list,
+/// return the component's name. Walks backward from the cursor character
+/// by character until it finds either an unmatched `(` (match!) or hits a
+/// structural boundary (`{`, `}`, `;`, newline-outside-arglist, or the
+/// start of the buffer).
+pub fn active_component_invocation(text: &str, pos: Position) -> Option<String> {
+    let bytes = text.as_bytes();
+    let target_offset = position_to_offset(text, pos)?;
+    if target_offset > bytes.len() {
+        return None;
+    }
+
+    let mut i = target_offset;
+    let mut paren_depth: i32 = 0;
+    while i > 0 {
+        i -= 1;
+        let c = bytes[i] as char;
+        match c {
+            ')' => paren_depth += 1,
+            '(' => {
+                if paren_depth == 0 {
+                    // Found the opening paren of our enclosing call. The
+                    // preceding token should be `@Name`.
+                    return preceding_at_name(&text[..i]);
+                }
+                paren_depth -= 1;
+            }
+            '{' | '}' | ';' if paren_depth == 0 => return None,
+            _ => {}
+        }
+    }
+    None
+}
+
+/// From `text` ending just before a `(`, pull the identifier that
+/// follows `@`. Returns None when `text` doesn't end with `@Name`.
+fn preceding_at_name(text: &str) -> Option<String> {
+    let trimmed = text.trim_end();
+    // Walk backward collecting identifier chars.
+    let bytes = trimmed.as_bytes();
+    let mut end = bytes.len();
+    while end > 0 {
+        let b = bytes[end - 1];
+        if b.is_ascii_alphanumeric() || b == b'_' {
+            end -= 1;
+        } else {
+            break;
+        }
+    }
+    let name = &trimmed[end..];
+    if name.is_empty() {
+        return None;
+    }
+    if end == 0 || bytes[end - 1] != b'@' {
+        return None;
+    }
+    Some(name.to_string())
+}
+
+/// Convert an LSP `Position` to a byte offset in `text`. UTF-16 aware-ish —
+/// we treat `character` as a count of `char` (Unicode scalar values)
+/// which is close enough for the ASCII-heavy `.ruitl` template syntax.
+fn position_to_offset(text: &str, pos: Position) -> Option<usize> {
+    let mut line = 0u32;
+    let mut line_start = 0usize;
+    for (idx, c) in text.char_indices() {
+        if line == pos.line {
+            // We're on the target line. Walk forward `pos.character` chars.
+            let mut char_count = 0u32;
+            for (jdx, _) in text[idx..].char_indices() {
+                if char_count == pos.character {
+                    return Some(idx + jdx);
+                }
+                char_count += 1;
+            }
+            // End of line reached before hitting the target column.
+            return Some(text.len());
+        }
+        if c == '\n' {
+            line += 1;
+            line_start = idx + 1;
+        }
+    }
+    if line == pos.line {
+        // Position at EOF on the last line.
+        return Some(line_start + pos.character as usize);
+    }
+    None
+}
+
+/// Locate the first `component <Name>` declaration in `text`. Returns
+/// `(line, column)` of the name token (0-indexed). Best-effort — scans
+/// line-by-line for `component <Name>` or `component <Name><`.
+fn locate_component_decl(text: &str, name: &str) -> Option<(u32, u32)> {
+    for (line_idx, line) in text.lines().enumerate() {
+        // Look for `component ` followed by the target name as a whole
+        // identifier (not a prefix of something longer).
+        let prefix = "component ";
+        if let Some(start) = line.find(prefix) {
+            let after = &line[start + prefix.len()..];
+            let ident_end = after
+                .char_indices()
+                .find(|(_, c)| !c.is_ascii_alphanumeric() && *c != '_')
+                .map(|(i, _)| i)
+                .unwrap_or(after.len());
+            if &after[..ident_end] == name {
+                let col = (start + prefix.len()) as u32;
+                return Some((line_idx as u32, col));
+            }
+        }
+    }
+    None
 }
 
 /// Run the full pipeline (parse + codegen) and translate each error into
@@ -218,6 +483,8 @@ impl LanguageServer for Backend {
                     trigger_characters: Some(vec!["@".to_string(), "<".to_string()]),
                     ..Default::default()
                 }),
+                hover_provider: Some(HoverProviderCapability::Simple(true)),
+                definition_provider: Some(OneOf::Left(true)),
                 ..Default::default()
             },
         })
@@ -272,6 +539,76 @@ impl LanguageServer for Backend {
         self.client.publish_diagnostics(uri, vec![], None).await;
     }
 
+    async fn hover(&self, params: HoverParams) -> RpcResult<Option<Hover>> {
+        let uri = params
+            .text_document_position_params
+            .text_document
+            .uri;
+        let pos = params.text_document_position_params.position;
+        let Some(text) = self.documents.get(&uri).map(|e| e.clone()) else {
+            return Ok(None);
+        };
+
+        let Some(name) = token_at_position(&text, pos, Some('@')) else {
+            return Ok(None);
+        };
+        let hits = self.lookup_component(&name);
+        let Some((_, comp)) = hits.into_iter().next() else {
+            return Ok(None);
+        };
+
+        let md = render_component_markdown(&comp);
+        Ok(Some(Hover {
+            contents: HoverContents::Markup(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: md,
+            }),
+            range: None,
+        }))
+    }
+
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> RpcResult<Option<GotoDefinitionResponse>> {
+        let uri = params
+            .text_document_position_params
+            .text_document
+            .uri;
+        let pos = params.text_document_position_params.position;
+        let Some(text) = self.documents.get(&uri).map(|e| e.clone()) else {
+            return Ok(None);
+        };
+
+        let Some(name) = token_at_position(&text, pos, Some('@')) else {
+            return Ok(None);
+        };
+        let hits = self.lookup_component(&name);
+        let locations: Vec<Location> = hits
+            .into_iter()
+            .map(|(uri, comp)| Location {
+                uri,
+                range: Range {
+                    start: Position::new(comp.decl_position.0, comp.decl_position.1),
+                    end: Position::new(
+                        comp.decl_position.0,
+                        comp.decl_position.1 + comp.name.chars().count() as u32,
+                    ),
+                },
+            })
+            .collect();
+
+        if locations.is_empty() {
+            Ok(None)
+        } else if locations.len() == 1 {
+            Ok(Some(GotoDefinitionResponse::Scalar(
+                locations.into_iter().next().unwrap(),
+            )))
+        } else {
+            Ok(Some(GotoDefinitionResponse::Array(locations)))
+        }
+    }
+
     async fn completion(
         &self,
         params: CompletionParams,
@@ -289,7 +626,21 @@ impl LanguageServer for Backend {
             .and_then(|c| c.trigger_character.clone());
         let char_before = char_before_position(&text, pos);
 
-        let items = match trigger.as_deref().or(char_before.map(trigger_slice).as_deref()) {
+        // Context detection takes priority over trigger char: if the
+        // cursor sits inside an `@Component(...)` arg list, offer prop
+        // names (scoped to that component's declaration) even when the
+        // user typed a letter rather than hitting a trigger.
+        if let Some(comp_name) = active_component_invocation(&text, pos) {
+            let items = self.prop_completion_items(&comp_name);
+            if !items.is_empty() {
+                return Ok(Some(CompletionResponse::Array(items)));
+            }
+        }
+
+        let items = match trigger
+            .as_deref()
+            .or(char_before.map(trigger_slice).as_deref())
+        {
             Some("@") => component_completion_items(&text),
             Some("<") => html_tag_completion_items(),
             _ => {
@@ -403,6 +754,57 @@ mod tests {
                 expected
             );
         }
+    }
+
+    #[test]
+    fn token_at_position_finds_component_reference() {
+        let text = "ruitl X() {\n    @Card(x: 1)\n}";
+        // Cursor on `C` of `@Card`.
+        let pos = Position::new(1, 5);
+        let tok = token_at_position(text, pos, Some('@'));
+        assert_eq!(tok.as_deref(), Some("Card"));
+    }
+
+    #[test]
+    fn token_at_position_rejects_when_missing_prefix() {
+        let text = "component Card {}";
+        // Cursor on `Card` — preceded by space, not `@`.
+        let pos = Position::new(0, 11);
+        assert!(token_at_position(text, pos, Some('@')).is_none());
+    }
+
+    #[test]
+    fn render_component_markdown_includes_props() {
+        let comp = IndexedComponent {
+            name: "Box".to_string(),
+            props: vec![PropDef {
+                name: "value".to_string(),
+                prop_type: "String".to_string(),
+                optional: false,
+                default_value: None,
+            }],
+            decl_position: (0, 10),
+        };
+        let md = render_component_markdown(&comp);
+        assert!(md.contains("@Box"));
+        assert!(md.contains("value: String"));
+    }
+
+    #[test]
+    fn active_component_detects_cursor_inside_arglist() {
+        let text = "ruitl X() {\n    @MyCard(name: \"a\", age: 2)\n}";
+        // Cursor after `@MyCard(` — line 1, col 12 (0-indexed).
+        let pos = Position::new(1, 12);
+        let name = active_component_invocation(text, pos);
+        assert_eq!(name.as_deref(), Some("MyCard"));
+    }
+
+    #[test]
+    fn active_component_returns_none_outside_arglist() {
+        let text = "ruitl X() {\n    <div>@MyCard(a: 1)</div>\n}";
+        // Cursor inside <div> but before `@MyCard(`. Should be None.
+        let pos = Position::new(1, 5);
+        assert!(active_component_invocation(text, pos).is_none());
     }
 
     #[test]

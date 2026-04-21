@@ -190,6 +190,29 @@ fn rejects_lifetime_generics() {
 // ---------------------------------------------------------------------------
 
 #[test]
+fn parses_raw_expression_marker() {
+    let src = r#"
+component Dump {
+    props { html: String }
+}
+ruitl Dump(html: String) {
+    <div>{!html}</div>
+}
+"#;
+    let file = parse_ok(src);
+    // Walk the body to find the RawExpression node.
+    fn find_raw(ast: &TemplateAst) -> bool {
+        match ast {
+            TemplateAst::RawExpression(_) => true,
+            TemplateAst::Element { children, .. } => children.iter().any(find_raw),
+            TemplateAst::Fragment(ns) => ns.iter().any(find_raw),
+            _ => false,
+        }
+    }
+    assert!(find_raw(&file.templates[0].body));
+}
+
+#[test]
 fn parses_hyphenated_and_namespaced_attribute_names() {
     let src = r#"
 component Thing {

@@ -424,6 +424,19 @@ impl CodeGenerator {
                 Ok(quote! { Html::text(&format!("{}", #expr)) })
             }
 
+            TemplateAst::RawExpression(expr) => {
+                // `{!expr}` injects the runtime value as raw HTML — no
+                // escaping. Callers are responsible for ensuring safety.
+                let transformed_expr = self.transform_variable_access(expr);
+                let expr: Expr = parse_str(&transformed_expr).map_err(|e| {
+                    CompileError::codegen(format!(
+                        "Invalid raw expression '{}': {}",
+                        transformed_expr, e
+                    ))
+                })?;
+                Ok(quote! { Html::raw(format!("{}", #expr)) })
+            }
+
             TemplateAst::If {
                 condition,
                 then_branch,
@@ -680,7 +693,10 @@ impl CodeGenerator {
                 arms.iter().any(|arm| Self::template_uses_context(&arm.body))
             }
             TemplateAst::Fragment(nodes) => nodes.iter().any(Self::template_uses_context),
-            TemplateAst::Text(_) | TemplateAst::Expression(_) | TemplateAst::Raw(_) => false,
+            TemplateAst::Text(_)
+            | TemplateAst::Expression(_)
+            | TemplateAst::RawExpression(_)
+            | TemplateAst::Raw(_) => false,
         }
     }
 
@@ -697,7 +713,9 @@ impl CodeGenerator {
     fn collect_idents_rec(ast: &TemplateAst, out: &mut std::collections::HashSet<String>) {
         match ast {
             TemplateAst::Text(_) | TemplateAst::Raw(_) => {}
-            TemplateAst::Expression(expr) => scan_idents(expr, out),
+            TemplateAst::Expression(expr) | TemplateAst::RawExpression(expr) => {
+                scan_idents(expr, out)
+            }
             TemplateAst::Element {
                 attributes,
                 children,
@@ -915,6 +933,7 @@ mod tests {
                 },
             ],
             generics: vec![],
+            leading_comments: vec![],
         }
     }
 
@@ -940,6 +959,7 @@ mod tests {
                 self_closing: false,
             },
             generics: vec![],
+            leading_comments: vec![],
         }
     }
 
@@ -1111,6 +1131,7 @@ mod tests {
                 name: "T".to_string(),
                 bounds: vec![],
             }],
+            leading_comments: vec![],
         };
         // Trigger the "requires matching template" path below: simplest to
         // just test props struct emission here.

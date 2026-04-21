@@ -14,18 +14,25 @@ stdio.
   `ruitl_compiler::format::format_source`. Clients typically wire this
   to "format on save".
 - **Completion** — triggered on `@` (component invocation) and `<` (HTML
-  tag). Component list is parsed from the current buffer; HTML tag list
-  is a static HTML5 allowlist. Manual invocation returns both sets.
+  tag). Component list comes from the workspace index; HTML tag list is
+  a static HTML5 allowlist. When the cursor sits inside
+  `@Component(...)` the completion list switches to that component's
+  declared props (with their types in the detail slot).
+- **Hover** — hovering `@Component` references renders the component's
+  name and full props signature as Markdown.
+- **Go-to-definition** — on `@Component` references, returns the
+  location of the matching `component Name {}` declaration. Works
+  across all open documents via the workspace index.
 
 ## What it doesn't do (yet)
 
 - **Rust-aware completion inside `{...}`** — needs a rust-analyzer
   bridge. Explicitly out of scope.
-- **Cross-file go-to-definition** for `@Component` references. Current
-  scope is single-document; needs a workspace index. Roadmap: v0.5+.
-- **Prop-name completion inside `@X(...)` arg list** — feasible within
-  the current index but not yet wired. Good next-pass target.
-- **Hover with prop types / docs.** Same — needs symbol index.
+- **Workspace file discovery** — the index only covers documents the
+  editor has opened. Closed `.ruitl` files aren't indexed until first
+  open. Good next-pass target (walk workspace on `initialize`).
+- **Rename refactor** (`textDocument/rename`) — feasible atop the
+  symbol index. Not yet wired.
 
 ## Install
 

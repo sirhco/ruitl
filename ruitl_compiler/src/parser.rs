@@ -17,6 +17,10 @@ pub struct ComponentDef {
     pub name: String,
     pub props: Vec<PropDef>,
     pub generics: Vec<GenericParam>,
+    /// Line / block comments that immediately precede this declaration.
+    /// Stored verbatim (without the `//` or `/* */` markers) so the
+    /// formatter can re-emit them in canonical position.
+    pub leading_comments: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -33,6 +37,8 @@ pub struct TemplateDef {
     pub params: Vec<ParamDef>,
     pub body: TemplateAst,
     pub generics: Vec<GenericParam>,
+    /// See `ComponentDef::leading_comments`.
+    pub leading_comments: Vec<String>,
 }
 
 /// A single generic type parameter: `T` or `T: Bound1 + Bound2`.
@@ -52,6 +58,8 @@ pub struct ParamDef {
 pub struct ImportDef {
     pub path: String,
     pub items: Vec<String>,
+    /// See `ComponentDef::leading_comments`.
+    pub leading_comments: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -67,6 +75,12 @@ pub enum TemplateAst {
     Text(String),
     /// Rust expression: {expr}
     Expression(String),
+    /// Raw-HTML Rust expression: `{!expr}`. Content is emitted via
+    /// `Html::raw(...)` instead of `Html::text(...)`, so the rendered
+    /// result is injected verbatim without HTML-entity escaping. Use
+    /// sparingly — caller is responsible for ensuring the expression
+    /// produces safe HTML.
+    RawExpression(String),
     /// Conditional rendering: if condition { ... } else { ... }
     If {
         condition: String,
@@ -126,6 +140,10 @@ pub struct RuitlParser {
     position: usize,
     line: usize,
     column: usize,
+    /// Comments collected by `skip_whitespace_and_comments` that haven't
+    /// yet been attached to a declaration. The next top-level `parse_*`
+    /// drains this buffer into its `leading_comments` field.
+    pending_comments: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -154,6 +172,7 @@ impl RuitlParser {
             position: 0,
             line: 1,
             column: 1,
+            pending_comments: Vec::new(),
         }
     }
 
@@ -185,6 +204,7 @@ impl RuitlParser {
     }
 
     fn parse_import(&mut self) -> Result<ImportDef> {
+        let leading_comments = self.take_pending_comments();
         self.skip_whitespace();
         let path = self.parse_string_literal()?;
 
@@ -212,10 +232,15 @@ impl RuitlParser {
             return Err(self.error("Expected '}' to close import list"));
         }
 
-        Ok(ImportDef { path, items })
+        Ok(ImportDef {
+            path,
+            items,
+            leading_comments,
+        })
     }
 
     fn parse_component(&mut self) -> Result<ComponentDef> {
+        let leading_comments = self.take_pending_comments();
         self.skip_whitespace();
         let name = self.parse_identifier()?;
 
@@ -261,6 +286,7 @@ impl RuitlParser {
             name,
             props,
             generics,
+            leading_comments,
         })
     }
 
@@ -300,6 +326,7 @@ impl RuitlParser {
     }
 
     fn parse_template(&mut self) -> Result<TemplateDef> {
+        let leading_comments = self.take_pending_comments();
         self.skip_whitespace();
         let name = self.parse_identifier()?;
 
@@ -362,6 +389,7 @@ impl RuitlParser {
             params,
             body,
             generics,
+            leading_comments,
         })
     }
 
@@ -610,13 +638,22 @@ impl RuitlParser {
             return Err(self.error("Expected '{' to start expression"));
         }
 
+        // `{!expr}` denotes a raw-HTML expression: its runtime value is
+        // injected verbatim via `Html::raw(...)` instead of going through
+        // `Html::text(...)` which would HTML-escape the output.
+        let raw = self.match_char('!');
+
         let expr = self.parse_expression_until(&['}'])?;
 
         if !self.match_char('}') {
             return Err(self.error("Expected '}' to close expression"));
         }
 
-        Ok(TemplateAst::Expression(expr))
+        if raw {
+            Ok(TemplateAst::RawExpression(expr))
+        } else {
+            Ok(TemplateAst::Expression(expr))
+        }
     }
 
     fn parse_component_invocation(&mut self) -> Result<TemplateAst> {
@@ -1008,17 +1045,29 @@ impl RuitlParser {
         loop {
             self.skip_whitespace();
             if self.match_str("//") {
+                let mut text = String::new();
                 while !self.is_at_end() && self.current_char() != '\n' {
+                    text.push(self.current_char());
                     self.advance();
                 }
+                self.pending_comments.push(text.trim().to_string());
             } else if self.match_str("/*") {
+                let mut text = String::new();
                 while !self.is_at_end() && !self.match_str("*/") {
+                    text.push(self.current_char());
                     self.advance();
                 }
+                self.pending_comments.push(text.trim().to_string());
             } else {
                 break;
             }
         }
+    }
+
+    /// Drain any buffered comments. Called by each top-level parse_*
+    /// so whatever the lexer has collected attaches to the next decl.
+    fn take_pending_comments(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.pending_comments)
     }
 
     fn current_char(&self) -> char {

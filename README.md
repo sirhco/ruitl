@@ -34,8 +34,9 @@ A template compiler for building type-safe HTML components in Rust, modelled on 
 | Minification | Optional | `--features minify` post-render via `minify-html` (planned) |
 | Static site generation | Planned | `ruitl build` subcommand with `[[routes]]` config (planned) |
 | Parser error context | Rustc-style frame | Line/col + caret + source context |
-| Editor support | Stable | tree-sitter grammar + LSP w/ diagnostics, formatting, trigger-char completion (`@`, `<`) |
-| Formatter | Stable | `ruitl fmt [--check]` CLI + LSP `textDocument/formatting`. Idempotent. Comments not preserved (parser gap). |
+| Editor support | Stable | tree-sitter grammar + LSP w/ diagnostics, formatting, completion (`@` + `<` + prop-names inside `@X(...)`), hover, go-to-definition |
+| Formatter | Stable | `ruitl fmt [--check]` CLI + LSP `textDocument/formatting`. Idempotent. Preserves leading comments. |
+| Raw-HTML expression | Stable | `{!expr}` inside a template body injects the runtime value as raw HTML (no escaping). |
 
 See `tests/fixtures/snapshots/*.snap` for canonical codegen output.
 

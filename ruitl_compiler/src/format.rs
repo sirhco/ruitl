@@ -38,6 +38,7 @@ pub fn format_file(file: &RuitlFile) -> String {
         if need_blank {
             out.push('\n');
         }
+        write_leading_comments(&mut out, &imp.leading_comments, 0);
         write_import(&mut out, imp);
         out.push('\n');
         need_blank = false;
@@ -50,6 +51,7 @@ pub fn format_file(file: &RuitlFile) -> String {
         if idx > 0 {
             out.push('\n');
         }
+        write_leading_comments(&mut out, &comp.leading_comments, 0);
         write_component(&mut out, comp);
     }
 
@@ -57,6 +59,7 @@ pub fn format_file(file: &RuitlFile) -> String {
         if !out.is_empty() {
             out.push('\n');
         }
+        write_leading_comments(&mut out, &tpl.leading_comments, 0);
         write_template(&mut out, tpl);
     }
 
@@ -64,6 +67,25 @@ pub fn format_file(file: &RuitlFile) -> String {
         out.push('\n');
     }
     out
+}
+
+/// Emit leading comments above a declaration. Single-line and stripped
+/// comments round-trip as `// text` lines; block comments render as a
+/// single `/* text */` on their own line. Multi-line block comments lose
+/// their original line breaks — acceptable for a first-pass formatter.
+fn write_leading_comments(out: &mut String, comments: &[String], indent: usize) {
+    for c in comments {
+        pad(out, indent);
+        if c.contains('\n') {
+            out.push_str("/* ");
+            out.push_str(&c.replace('\n', " "));
+            out.push_str(" */");
+        } else {
+            out.push_str("// ");
+            out.push_str(c);
+        }
+        out.push('\n');
+    }
 }
 
 fn write_import(out: &mut String, imp: &ImportDef) {
@@ -186,6 +208,12 @@ fn write_node(out: &mut String, ast: &TemplateAst, indent: usize) {
         TemplateAst::Expression(expr) => {
             pad(out, indent);
             out.push('{');
+            out.push_str(expr.trim());
+            out.push_str("}\n");
+        }
+        TemplateAst::RawExpression(expr) => {
+            pad(out, indent);
+            out.push_str("{!");
             out.push_str(expr.trim());
             out.push_str("}\n");
         }
@@ -386,6 +414,15 @@ fn try_inline_children(children: &[TemplateAst]) -> Option<String> {
                 buf.push_str(e);
                 buf.push('}');
             }
+            TemplateAst::RawExpression(expr) => {
+                let e = expr.trim();
+                if e.contains('\n') {
+                    return None;
+                }
+                buf.push_str("{!");
+                buf.push_str(e);
+                buf.push('}');
+            }
             _ => return None,
         }
     }
@@ -492,6 +529,15 @@ mod tests {
         let out = roundtrip(input);
         assert!(out.contains("if open {"));
         assert!(out.contains("} else {"));
+    }
+
+    #[test]
+    fn preserves_leading_comments_above_declarations() {
+        let input = "// top comment\ncomponent Foo { props { x: String } }\n\
+                     // ruitl header\nruitl Foo(x: String) { <p>{x}</p> }";
+        let out = roundtrip(input);
+        assert!(out.contains("// top comment"));
+        assert!(out.contains("// ruitl header"));
     }
 
     #[test]
