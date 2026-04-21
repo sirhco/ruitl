@@ -14,6 +14,26 @@ pub struct RuitlConfig {
     pub project: ProjectConfig,
     /// Build configuration
     pub build: BuildConfig,
+    /// Static-site routes for the `ruitl build` subcommand. Each entry maps
+    /// a URL path to a component name plus a props JSON file.
+    #[serde(default, rename = "routes")]
+    pub routes: Vec<RouteConfig>,
+}
+
+/// A single static-site route. Used by `ruitl build`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RouteConfig {
+    /// URL path the route serves (e.g. `/`, `/about`). Used to determine the
+    /// on-disk output path under the chosen `--out-dir` (with `/` mapping to
+    /// `index.html`).
+    pub path: String,
+    /// Component name to render. Must be dispatched by the user-supplied
+    /// entry function passed to `ruitl::build::render_site`.
+    pub component: String,
+    /// Path to a JSON file containing the props for this route. Loaded and
+    /// passed verbatim to the entry function so user code can deserialize
+    /// into its concrete `Props` type.
+    pub props_file: PathBuf,
 }
 
 /// Project metadata configuration
@@ -54,6 +74,7 @@ impl Default for RuitlConfig {
                 out_dir: PathBuf::from("generated"),
                 src_dir: PathBuf::from("src"),
             },
+            routes: Vec::new(),
         }
     }
 }

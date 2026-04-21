@@ -1,0 +1,74 @@
+==================
+simple component
+==================
+
+component Hello {
+    props {
+        name: String,
+    }
+}
+
+---
+
+(source_file
+  (component_declaration
+    name: (identifier)
+    (props_block
+      (prop_def
+        name: (identifier)
+        type: (type_expr (identifier))))))
+
+==================
+component with default and optional props
+==================
+
+component Button {
+    props {
+        text: String,
+        variant: String = "primary",
+        disabled: bool?,
+    }
+}
+
+---
+
+(source_file
+  (component_declaration
+    name: (identifier)
+    (props_block
+      (prop_def
+        name: (identifier)
+        type: (type_expr (identifier)))
+      (prop_def
+        name: (identifier)
+        type: (type_expr (identifier))
+        default: (rust_expression))
+      (prop_def
+        name: (identifier)
+        type: (type_expr (identifier))
+        optional: (optional_marker)))))
+
+==================
+component with generics
+==================
+
+component Boxed<T: Clone + Debug> {
+    props {
+        value: T,
+    }
+}
+
+---
+
+(source_file
+  (component_declaration
+    name: (identifier)
+    generics: (generic_params
+      (generic_param
+        name: (identifier)
+        (type_bound (type_expr (identifier)))
+        (type_bound (type_expr (identifier)))))
+    (props_block
+      (prop_def
+        name: (identifier)
+        type: (type_expr (identifier))))))

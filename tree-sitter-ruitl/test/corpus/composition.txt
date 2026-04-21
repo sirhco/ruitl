@@ -1,0 +1,89 @@
+==================
+component invocation
+==================
+
+component Badge {
+    props { text: String }
+}
+ruitl Badge(text: String) { <span>{text}</span> }
+
+component Banner {
+    props { label: String }
+}
+ruitl Banner(label: String) {
+    <div>
+        @Badge(text: label.clone())
+    </div>
+}
+
+---
+
+(source_file
+  (component_declaration
+    name: (identifier)
+    (props_block
+      (prop_def name: (identifier) type: (type_expr (identifier)))))
+  (ruitl_declaration
+    name: (identifier)
+    (param_def name: (identifier) type: (type_expr (identifier)))
+    (element
+      tag: (tag_name)
+      (expression_node expr: (rust_expression))
+      closing_tag: (tag_name)))
+  (component_declaration
+    name: (identifier)
+    (props_block
+      (prop_def name: (identifier) type: (type_expr (identifier)))))
+  (ruitl_declaration
+    name: (identifier)
+    (param_def name: (identifier) type: (type_expr (identifier)))
+    (element
+      tag: (tag_name)
+      (component_invocation
+        name: (identifier)
+        (component_prop
+          name: (identifier)
+          value: (rust_expression)))
+      closing_tag: (tag_name))))
+
+==================
+for loop with tuple destructure
+==================
+
+ruitl Table(rows: Vec<(String, i32)>) {
+    <tbody>
+        for (key, value) in rows {
+            <tr><td>{key}</td><td>{value}</td></tr>
+        }
+    </tbody>
+}
+
+---
+
+(source_file
+  (ruitl_declaration
+    name: (identifier)
+    (param_def
+      name: (identifier)
+      type: (type_expr
+        (identifier)
+        (type_expr
+          (type_expr (identifier))
+          (type_expr (identifier)))))
+    (element
+      tag: (tag_name)
+      (for_statement
+        binding: (tuple_pattern (identifier) (identifier))
+        iterable: (rust_expression)
+        (element
+          tag: (tag_name)
+          (element
+            tag: (tag_name)
+            (expression_node expr: (rust_expression))
+            closing_tag: (tag_name))
+          (element
+            tag: (tag_name)
+            (expression_node expr: (rust_expression))
+            closing_tag: (tag_name))
+          closing_tag: (tag_name)))
+      closing_tag: (tag_name))))

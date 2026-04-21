@@ -1,0 +1,21 @@
+component Status {
+    props {
+        state: String,
+    }
+}
+
+ruitl Status(state: String) {
+    <span>
+        match state.as_str() {
+            "ok" => {
+                <em>ok</em>
+            }
+            "err" => {
+                <strong>err</strong>
+            }
+            _ => {
+                <span>unknown</span>
+            }
+        }
+    </span>
+}

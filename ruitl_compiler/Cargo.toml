@@ -1,0 +1,19 @@
+[package]
+name = "ruitl_compiler"
+version = "0.1.0"
+edition = "2021"
+description = "Parser and code generator for the RUITL (Rust UI Template Language)"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/sirhco/ruitl"
+
+[lib]
+name = "ruitl_compiler"
+path = "src/lib.rs"
+
+[dependencies]
+proc-macro2 = "1.0"
+quote = "1.0"
+syn = { version = "2.0", features = ["full"] }
+thiserror = "1.0"
+walkdir = "2.3"
+md5 = "0.7"

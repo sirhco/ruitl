@@ -419,7 +419,7 @@ macro_rules! impl_static_component {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::html::{div, text, Html};
+    use crate::html::{div, Html};
 
     #[derive(Debug, Clone)]
     struct TestProps {

@@ -9,8 +9,6 @@
 //! Run with: cargo run --example template_compiler_demo
 
 use ruitl::prelude::*;
-use std::fs;
-use std::path::Path;
 
 fn main() -> Result<()> {
     println!("🚀 RUITL Template Compiler Demo");

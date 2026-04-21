@@ -1,0 +1,24 @@
+[package]
+name = "ruitl_lsp"
+version = "0.1.0"
+edition = "2021"
+description = "Language Server Protocol implementation for RUITL templates"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/sirhco/ruitl"
+
+[[bin]]
+name = "ruitl-lsp"
+path = "src/main.rs"
+
+[lib]
+name = "ruitl_lsp"
+path = "src/lib.rs"
+
+[dependencies]
+tower-lsp = "0.20"
+tokio = { version = "1.0", features = ["rt-multi-thread", "io-std", "io-util", "macros", "sync"] }
+dashmap = "5.5"
+ruitl_compiler = { path = "../ruitl_compiler" }
+
+[dev-dependencies]
+tokio = { version = "1.0", features = ["rt-multi-thread", "io-std", "io-util", "macros", "sync", "test-util"] }

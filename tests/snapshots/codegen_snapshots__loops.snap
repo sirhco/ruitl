@@ -1,0 +1,40 @@
+---
+source: tests/codegen_snapshots.rs
+expression: out
+---
+use ruitl::prelude::*;
+use ruitl::html::*;
+#[derive(Debug, Clone)]
+pub struct ListProps {
+    pub items: Vec<String>,
+}
+impl ComponentProps for ListProps {
+    fn validate(&self) -> Result<()> {
+        Ok(())
+    }
+}
+#[derive(Debug)]
+pub struct List;
+impl Component for List {
+    type Props = ListProps;
+    #[allow(unused_variables)]
+    fn render(&self, props: &Self::Props, _context: &ComponentContext) -> Result<Html> {
+        let items = &props.items;
+        Ok(
+            Html::Element(
+                HtmlElement::new("ul")
+                    .child(
+                        Html::fragment(
+                            items
+                                .into_iter()
+                                .map(|item| Html::Element(
+                                    HtmlElement::new("li")
+                                        .child(Html::text(&format!("{}", item))),
+                                ))
+                                .collect::<Vec<_>>(),
+                        ),
+                    ),
+            ),
+        )
+    }
+}

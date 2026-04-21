@@ -1,0 +1,9 @@
+component Boxed<T: Clone> {
+    props {
+        value: T,
+    }
+}
+
+ruitl Boxed<T: Clone>(value: T) {
+    <div class="boxed">{format!("{:?}", value)}</div>
+}

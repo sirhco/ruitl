@@ -2,14 +2,17 @@
 
 use crate::error::{Result, RuitlError};
 use html_escape::{encode_quoted_attribute, encode_text};
-use std::collections::HashMap;
 use std::fmt::{self, Display, Write};
 
-/// Represents an HTML element with attributes and children
+/// Represents an HTML element with attributes and children.
+///
+/// Attributes are a `Vec<(String, HtmlAttribute)>` (not a `HashMap`) so
+/// insertion order is preserved in the rendered output — matches templ's
+/// behavior and keeps rendering deterministic.
 #[derive(Debug, Clone, PartialEq)]
 pub struct HtmlElement {
     pub tag: String,
-    pub attributes: HashMap<String, HtmlAttribute>,
+    pub attributes: Vec<(String, HtmlAttribute)>,
     pub children: Vec<Html>,
     pub self_closing: bool,
 }
@@ -45,7 +48,7 @@ impl HtmlElement {
     pub fn new<S: Into<String>>(tag: S) -> Self {
         Self {
             tag: tag.into(),
-            attributes: HashMap::new(),
+            attributes: Vec::new(),
             children: Vec::new(),
             self_closing: false,
         }
@@ -55,29 +58,38 @@ impl HtmlElement {
     pub fn self_closing<S: Into<String>>(tag: S) -> Self {
         Self {
             tag: tag.into(),
-            attributes: HashMap::new(),
+            attributes: Vec::new(),
             children: Vec::new(),
             self_closing: true,
         }
     }
 
-    /// Add an attribute with a value
+    /// Add an attribute with a value.
+    ///
+    /// Duplicate keys are preserved in insertion order (templ-style) — if you
+    /// need overwrite semantics for a singleton key like `class` or `id`, use
+    /// the dedicated `class()` / `id()` helpers which replace existing entries.
     pub fn attr<K: Into<String>, V: Into<String>>(mut self, key: K, value: V) -> Self {
         self.attributes
-            .insert(key.into(), HtmlAttribute::Value(value.into()));
+            .push((key.into(), HtmlAttribute::Value(value.into())));
         self
     }
 
     /// Add a boolean attribute
     pub fn bool_attr<K: Into<String>>(mut self, key: K) -> Self {
-        self.attributes.insert(key.into(), HtmlAttribute::Boolean);
+        self.attributes.push((key.into(), HtmlAttribute::Boolean));
         self
     }
 
-    /// Add a class attribute
+    /// Add a class attribute (merged with any existing `class` entry)
     pub fn class<S: Into<String>>(mut self, class: S) -> Self {
         let class_name = class.into();
-        match self.attributes.get_mut("class") {
+        let existing = self
+            .attributes
+            .iter_mut()
+            .find(|(k, _)| k == "class")
+            .map(|(_, v)| v);
+        match existing {
             Some(HtmlAttribute::Value(existing)) => {
                 *existing = format!("{} {}", existing, class_name);
             }
@@ -86,13 +98,13 @@ impl HtmlElement {
             }
             _ => {
                 self.attributes
-                    .insert("class".to_string(), HtmlAttribute::Value(class_name));
+                    .push(("class".to_string(), HtmlAttribute::Value(class_name)));
             }
         }
         self
     }
 
-    /// Add multiple classes
+    /// Add multiple classes (replaces any existing `class` entry)
     pub fn classes<I, S>(mut self, classes: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -100,16 +112,18 @@ impl HtmlElement {
     {
         let class_list: Vec<String> = classes.into_iter().map(|s| s.into()).collect();
         if !class_list.is_empty() {
+            self.attributes.retain(|(k, _)| k != "class");
             self.attributes
-                .insert("class".to_string(), HtmlAttribute::List(class_list));
+                .push(("class".to_string(), HtmlAttribute::List(class_list)));
         }
         self
     }
 
-    /// Add an ID attribute
+    /// Add an ID attribute (replaces any existing `id` entry)
     pub fn id<S: Into<String>>(mut self, id: S) -> Self {
+        self.attributes.retain(|(k, _)| k != "id");
         self.attributes
-            .insert("id".to_string(), HtmlAttribute::Value(id.into()));
+            .push(("id".to_string(), HtmlAttribute::Value(id.into())));
         self
     }
 
@@ -128,7 +142,7 @@ impl HtmlElement {
     ) -> Self {
         if condition {
             self.attributes
-                .insert(key.into(), HtmlAttribute::Value(value.into()));
+                .push((key.into(), HtmlAttribute::Value(value.into())));
         }
         self
     }
@@ -137,7 +151,7 @@ impl HtmlElement {
     pub fn attr_optional<K: Into<String>>(mut self, key: K, value: &Option<String>) -> Self {
         if let Some(ref val) = value {
             self.attributes
-                .insert(key.into(), HtmlAttribute::Value(val.clone()));
+                .push((key.into(), HtmlAttribute::Value(val.clone())));
         }
         self
     }
@@ -172,6 +186,26 @@ impl HtmlElement {
     pub fn is_self_closing(&self) -> bool {
         self.self_closing || is_void_element(&self.tag)
     }
+}
+
+/// Apply the `minify-html` pass when the `minify` feature is on. No-op
+/// otherwise. Kept out of the hot path so callers who care about exact
+/// output (tests, snapshot tooling) can observe unminified HTML simply by
+/// not building with the feature.
+#[cfg(feature = "minify")]
+fn maybe_minify(html: String) -> String {
+    let cfg = minify_html::Cfg {
+        keep_closing_tags: true,
+        keep_comments: false,
+        ..Default::default()
+    };
+    let bytes = minify_html::minify(html.as_bytes(), &cfg);
+    String::from_utf8(bytes).unwrap_or(html)
+}
+
+#[cfg(not(feature = "minify"))]
+fn maybe_minify(html: String) -> String {
+    html
 }
 
 impl HtmlAttribute {
@@ -222,11 +256,16 @@ impl Html {
         Html::Empty
     }
 
-    /// Render the HTML to a string
+    /// Render the HTML to a string.
+    ///
+    /// When the `minify` feature is enabled, the output is run through
+    /// `minify_html::minify` as a final pass with conservative defaults
+    /// (`keep_closing_tags: true`). Without the feature, output is returned
+    /// as-built.
     pub fn render(&self) -> String {
         let mut output = String::new();
         self.render_to(&mut output).unwrap_or_default();
-        output
+        maybe_minify(output)
     }
 
     /// Render the HTML to a writer
@@ -264,7 +303,7 @@ impl Html {
             Html::Fragment(children) => {
                 children.is_empty() || children.iter().all(|c| c.is_empty())
             }
-            Html::Element(element) => false, // Elements are never considered empty
+            Html::Element(_) => false, // Elements are never considered empty
         }
     }
 
@@ -557,6 +596,30 @@ where
     I: IntoIterator<Item = Html>,
 {
     Html::fragment(children)
+}
+
+/// Extension methods used by generated code for conditional attributes.
+pub trait HtmlElementExt {
+    fn attr_if(self, name: &str, condition: bool, value: &str) -> Self;
+    fn attr_optional<K: Into<String>>(self, name: K, value: &Option<String>) -> Self;
+}
+
+impl HtmlElementExt for HtmlElement {
+    fn attr_if(self, name: &str, condition: bool, value: &str) -> Self {
+        if condition {
+            self.attr(name, value)
+        } else {
+            self
+        }
+    }
+
+    fn attr_optional<K: Into<String>>(self, name: K, value: &Option<String>) -> Self {
+        if let Some(ref val) = value {
+            self.attr(name, val)
+        } else {
+            self
+        }
+    }
 }
 
 #[cfg(test)]
