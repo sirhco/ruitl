@@ -2,8 +2,7 @@
 //!
 //! Parses .ruitl files and converts them to an AST that can be compiled to Rust code
 
-use crate::error::{Result, RuitlError};
-use std::collections::HashMap;
+use crate::error::{CompileError, Result};
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -17,7 +16,7 @@ pub struct RuitlFile {
 pub struct ComponentDef {
     pub name: String,
     pub props: Vec<PropDef>,
-    pub generics: Vec<String>,
+    pub generics: Vec<GenericParam>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -33,6 +32,14 @@ pub struct TemplateDef {
     pub name: String,
     pub params: Vec<ParamDef>,
     pub body: TemplateAst,
+    pub generics: Vec<GenericParam>,
+}
+
+/// A single generic type parameter: `T` or `T: Bound1 + Bound2`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GenericParam {
+    pub name: String,
+    pub bounds: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -213,6 +220,13 @@ impl RuitlParser {
         let name = self.parse_identifier()?;
 
         self.skip_whitespace();
+        let generics = if self.check_char('<') {
+            self.parse_generics()?
+        } else {
+            Vec::new()
+        };
+
+        self.skip_whitespace();
         if !self.match_char('{') {
             return Err(self.error("Expected '{' after component name"));
         }
@@ -220,7 +234,6 @@ impl RuitlParser {
         self.skip_whitespace_and_comments();
 
         let mut props = Vec::new();
-        let generics = Vec::new(); // TODO: implement generics parsing
 
         if self.match_keyword("props") {
             self.skip_whitespace();
@@ -291,6 +304,13 @@ impl RuitlParser {
         let name = self.parse_identifier()?;
 
         self.skip_whitespace();
+        let generics = if self.check_char('<') {
+            self.parse_generics()?
+        } else {
+            Vec::new()
+        };
+
+        self.skip_whitespace();
         if !self.match_char('(') {
             return Err(self.error("Expected '(' after template name"));
         }
@@ -337,7 +357,90 @@ impl RuitlParser {
             return Err(self.error("Expected '}' to close template body"));
         }
 
-        Ok(TemplateDef { name, params, body })
+        Ok(TemplateDef {
+            name,
+            params,
+            body,
+            generics,
+        })
+    }
+
+    /// Parse `<T, U: Bound1 + Bound2>` — a comma-separated list of generic
+    /// parameters, each optionally followed by `: Bound1 + Bound2 + ...`.
+    fn parse_generics(&mut self) -> Result<Vec<GenericParam>> {
+        if !self.match_char('<') {
+            return Err(self.error("Expected '<' to start generic parameter list"));
+        }
+
+        let mut params = Vec::new();
+        self.skip_whitespace();
+
+        while !self.check_char('>') && !self.is_at_end() {
+            // Reject lifetime parameters (`<'a>`) explicitly. RUITL components
+            // use owned types only; lifetime-generic components would need
+            // lifetime inference on the render method, which is out of scope
+            // for v0.2.
+            if self.check_char('\'') {
+                return Err(self.error(
+                    "Lifetime parameters in component declarations are not supported; use owned types",
+                ));
+            }
+            let name = self.parse_identifier()?;
+            self.skip_whitespace();
+
+            let mut bounds = Vec::new();
+            if self.match_char(':') {
+                self.skip_whitespace();
+                loop {
+                    let bound = self.parse_generic_bound()?;
+                    if !bound.is_empty() {
+                        bounds.push(bound);
+                    }
+                    self.skip_whitespace();
+                    if !self.match_char('+') {
+                        break;
+                    }
+                    self.skip_whitespace();
+                }
+            }
+
+            params.push(GenericParam { name, bounds });
+
+            self.skip_whitespace();
+            if self.match_char(',') {
+                self.skip_whitespace();
+            } else if !self.check_char('>') {
+                return Err(self.error("Expected ',' or '>' in generic parameter list"));
+            }
+        }
+
+        if !self.match_char('>') {
+            return Err(self.error("Expected '>' to close generic parameter list"));
+        }
+
+        Ok(params)
+    }
+
+    /// Parse a single trait-bound inside a generic parameter list. Stops at
+    /// `+` (next bound), `,` (next param), or `>` (end of list). Nested
+    /// `<...>` is tracked so bounds like `Iterator<Item=u32>` work.
+    fn parse_generic_bound(&mut self) -> Result<String> {
+        let mut out = String::new();
+        let mut angle_depth = 0i32;
+
+        while !self.is_at_end() {
+            let ch = self.current_char();
+            match ch {
+                '<' => angle_depth += 1,
+                '>' if angle_depth > 0 => angle_depth -= 1,
+                '>' | ',' | '+' if angle_depth == 0 => break,
+                _ => {}
+            }
+            out.push(ch);
+            self.advance();
+        }
+
+        Ok(out.trim().to_string())
     }
 
     fn parse_template_body(&mut self) -> Result<TemplateAst> {
@@ -358,7 +461,26 @@ impl RuitlParser {
     }
 
     fn parse_template_node(&mut self) -> Result<TemplateAst> {
-        self.skip_whitespace();
+        // Whitespace between an expression (`{x}`) and adjacent text is
+        // significant for HTML rendering. Only eat leading whitespace when the
+        // next non-whitespace token is a structured node (element /
+        // expression / component / control-flow keyword). When it's text,
+        // keep the whitespace as part of the text node.
+        let after_ws = self.cursor_after_whitespace();
+        let next_is_structured = if after_ws >= self.input.len() {
+            false
+        } else {
+            let c = self.input[after_ws];
+            c == '<'
+                || c == '{'
+                || c == '@'
+                || c == '}'
+                || self.at_keyword_at(after_ws, &["if", "for", "match", "else"])
+        };
+
+        if next_is_structured {
+            self.skip_whitespace();
+        }
 
         if self.check_char('<') {
             // Check if this is a DOCTYPE declaration
@@ -421,6 +543,13 @@ impl RuitlParser {
         // Parse children
         let mut children = Vec::new();
         while !self.check_closing_tag(&tag) && !self.is_at_end() {
+            // If we hit a template-body close `}` before the closing tag, the
+            // element is unclosed. Bail out so the caller raises the "Expected
+            // closing tag" error below instead of spinning forever on an empty
+            // text node.
+            if self.check_char('}') {
+                break;
+            }
             let child = self.parse_template_node()?;
             children.push(child);
         }
@@ -440,7 +569,7 @@ impl RuitlParser {
     }
 
     fn parse_attribute(&mut self) -> Result<Attribute> {
-        let name = self.parse_identifier()?;
+        let name = self.parse_attribute_name()?;
 
         // Check for conditional attribute (disabled?)
         let conditional = self.match_char('?');
@@ -575,7 +704,7 @@ impl RuitlParser {
 
     fn parse_for_statement(&mut self) -> Result<TemplateAst> {
         self.skip_whitespace();
-        let variable = self.parse_identifier()?;
+        let variable = self.parse_for_binding()?;
 
         self.skip_whitespace();
         if !self.match_keyword("in") {
@@ -688,6 +817,55 @@ impl RuitlParser {
         }
 
         Ok(identifier)
+    }
+
+    /// Parse a `for` loop binding. Accepts either a bare identifier (`item`)
+    /// or a tuple destructure pattern (`(key, value)`). Returned verbatim so
+    /// codegen can parse it as a `syn::Pat`.
+    fn parse_for_binding(&mut self) -> Result<String> {
+        if self.check_char('(') {
+            let mut out = String::new();
+            let mut depth = 0i32;
+            while !self.is_at_end() {
+                let ch = self.current_char();
+                out.push(ch);
+                if ch == '(' {
+                    depth += 1;
+                } else if ch == ')' {
+                    depth -= 1;
+                    self.advance();
+                    if depth == 0 {
+                        return Ok(out);
+                    }
+                    continue;
+                }
+                self.advance();
+            }
+            return Err(self.error("Unterminated tuple pattern in for binding"));
+        }
+        self.parse_identifier()
+    }
+
+    /// Parse an HTML/XML attribute name. Like `parse_identifier` but also
+    /// allows `-` (e.g. `aria-hidden`) and `:` (e.g. `xmlns:xlink`).
+    fn parse_attribute_name(&mut self) -> Result<String> {
+        let mut name = String::new();
+
+        if !self.current_char().is_ascii_alphabetic() && self.current_char() != '_' {
+            return Err(self.error("Expected attribute name"));
+        }
+
+        while !self.is_at_end() {
+            let ch = self.current_char();
+            if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' || ch == ':' {
+                name.push(ch);
+                self.advance();
+            } else {
+                break;
+            }
+        }
+
+        Ok(name)
     }
 
     fn parse_string_literal(&mut self) -> Result<String> {
@@ -889,14 +1067,6 @@ impl RuitlParser {
         Ok(TemplateAst::Text(doctype_text))
     }
 
-    fn peek_char(&self) -> char {
-        if self.position + 1 >= self.input.len() {
-            '\0'
-        } else {
-            self.input[self.position + 1]
-        }
-    }
-
     fn advance(&mut self) {
         if !self.is_at_end() {
             if self.current_char() == '\n' {
@@ -966,6 +1136,42 @@ impl RuitlParser {
         false
     }
 
+    /// Return the position after skipping any run of whitespace starting at
+    /// `self.position`, without mutating the parser state.
+    fn cursor_after_whitespace(&self) -> usize {
+        let mut i = self.position;
+        while i < self.input.len() && self.input[i].is_whitespace() {
+            i += 1;
+        }
+        i
+    }
+
+    /// Like `at_keyword`, but checks at an arbitrary position `pos` instead of
+    /// `self.position`. Used for lookahead.
+    fn at_keyword_at(&self, pos: usize, keywords: &[&str]) -> bool {
+        for &keyword in keywords {
+            let kw: Vec<char> = keyword.chars().collect();
+            if pos + kw.len() <= self.input.len() {
+                let mut matches = true;
+                for (i, &ch) in kw.iter().enumerate() {
+                    if self.input[pos + i] != ch {
+                        matches = false;
+                        break;
+                    }
+                }
+                if matches {
+                    let after = pos + kw.len();
+                    if after >= self.input.len()
+                        || !(self.input[after].is_ascii_alphanumeric() || self.input[after] == '_')
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
     fn at_keyword(&self, keywords: &[&str]) -> bool {
         for &keyword in keywords {
             let keyword_chars: Vec<char> = keyword.chars().collect();
@@ -1017,17 +1223,107 @@ impl RuitlParser {
         true
     }
 
-    fn error(&self, message: &str) -> RuitlError {
-        RuitlError::parse(format!(
-            "{} at line {}, column {}",
+    fn error(&self, message: &str) -> CompileError {
+        CompileError::parse(self.format_error(message))
+    }
+
+    /// Build a rustc-style framed error message. Shows the offending line
+    /// (plus up to two lines of leading context) with a caret under the
+    /// offending column.
+    fn format_error(&self, message: &str) -> String {
+        let source: String = self.input.iter().collect();
+        let lines: Vec<&str> = source.lines().collect();
+        // `self.line` is 1-indexed; clamp so out-of-range errors don't panic.
+        let err_line_idx = (self.line.saturating_sub(1)).min(lines.len().saturating_sub(1));
+        let start_line_idx = err_line_idx.saturating_sub(2);
+
+        let mut out = String::new();
+        out.push_str(&format!(
+            "{} at line {}, column {}\n",
             message, self.line, self.column
-        ))
+        ));
+
+        // Width of the line-number gutter (at least 2 chars for aesthetics).
+        let gutter = std::cmp::max(2, (err_line_idx + 1).to_string().len());
+
+        out.push_str(&format!("{:>width$} |\n", "", width = gutter));
+        for (offset, line) in lines[start_line_idx..=err_line_idx].iter().enumerate() {
+            let lineno = start_line_idx + offset + 1;
+            out.push_str(&format!("{:>width$} | {}\n", lineno, line, width = gutter));
+        }
+        // Caret under the offending column. column is 1-indexed.
+        let caret_pad = self.column.saturating_sub(1);
+        out.push_str(&format!(
+            "{:>width$} | {}^ {}\n",
+            "",
+            " ".repeat(caret_pad),
+            message,
+            width = gutter
+        ));
+
+        out
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_parse_component_generics() {
+        let input = r#"
+component Box<T> {
+    props {
+        value: T,
+    }
+}
+"#;
+        let mut parser = RuitlParser::new(input.to_string());
+        let result = parser.parse().unwrap();
+        let component = &result.components[0];
+        assert_eq!(component.generics.len(), 1);
+        assert_eq!(component.generics[0].name, "T");
+        assert!(component.generics[0].bounds.is_empty());
+    }
+
+    #[test]
+    fn test_parse_component_generics_with_bounds() {
+        let input = r#"
+component List<T: Clone + Display, U> {
+    props {
+        items: Vec<T>,
+    }
+}
+"#;
+        let mut parser = RuitlParser::new(input.to_string());
+        let result = parser.parse().unwrap();
+        let component = &result.components[0];
+        assert_eq!(component.generics.len(), 2);
+        assert_eq!(component.generics[0].name, "T");
+        assert_eq!(component.generics[0].bounds, vec!["Clone", "Display"]);
+        assert_eq!(component.generics[1].name, "U");
+        assert!(component.generics[1].bounds.is_empty());
+    }
+
+    #[test]
+    fn test_parse_template_generics() {
+        let input = r#"
+component Box<T> {
+    props {
+        value: T,
+    }
+}
+
+ruitl Box<T>(value: T) {
+    <div>{value}</div>
+}
+"#;
+        let mut parser = RuitlParser::new(input.to_string());
+        let result = parser.parse().unwrap();
+        assert_eq!(result.templates.len(), 1);
+        assert_eq!(result.templates[0].generics.len(), 1);
+        assert_eq!(result.templates[0].generics[0].name, "T");
+    }
 
     #[test]
     fn test_parse_identifier() {
@@ -1068,7 +1364,9 @@ component Button {
 
         assert_eq!(component.props[1].name, "disabled");
         assert_eq!(component.props[1].prop_type, "bool");
-        assert!(component.props[1].optional);
+        // A prop with a default value is not Option-wrapped; `optional`
+        // tracks explicit `?` markers only.
+        assert!(!component.props[1].optional);
         assert_eq!(component.props[1].default_value, Some("false".to_string()));
     }
 

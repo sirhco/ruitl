@@ -2,15 +2,102 @@
 //!
 //! Converts parsed .ruitl templates into optimized Rust code that uses the RUITL runtime library.
 
-use crate::error::{Result, RuitlError};
+use crate::error::{CompileError, Result};
 use crate::parser::{
-    Attribute, AttributeValue, ComponentDef, ImportDef, MatchArm, ParamDef, PropDef, PropValue,
-    RuitlFile, TemplateAst, TemplateDef,
+    Attribute, AttributeValue, ComponentDef, ImportDef, MatchArm, PropValue, RuitlFile,
+    TemplateAst, TemplateDef,
 };
-use proc_macro2::{Ident, Span, TokenStream};
+use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote, ToTokens};
 use std::collections::HashMap;
 use syn::{parse_str, Expr, Type};
+
+/// Render `<T: Debug + Clone + ..., U>` declarations for use at a struct or
+/// impl header. Always appends the bounds required by the `ComponentProps`
+/// trait (`Debug + Clone + Send + Sync + 'static`) so downstream blanket impls
+/// compile without the user having to spell them out.
+fn render_generic_param_decls(generics: &[crate::parser::GenericParam]) -> Vec<TokenStream> {
+    generics
+        .iter()
+        .map(|g| {
+            let name = format_ident!("{}", g.name);
+            let mut bounds_toks: Vec<TokenStream> = g
+                .bounds
+                .iter()
+                .map(|b| {
+                    b.parse::<TokenStream>()
+                        .unwrap_or_else(|_| format_ident!("{}", b).to_token_stream())
+                })
+                .collect();
+            // Auto-append the bounds required by the Component/ComponentProps
+            // traits if the user didn't already list them.
+            for required in &["Debug", "Clone", "Send", "Sync"] {
+                if !g.bounds.iter().any(|b| b == required) {
+                    let id = format_ident!("{}", required);
+                    bounds_toks.push(quote! { #id });
+                }
+            }
+            // 'static bound — always required for Component impls.
+            bounds_toks.push(quote! { 'static });
+            quote! { #name: #(#bounds_toks)+* }
+        })
+        .collect()
+}
+
+/// Render just the generic identifiers (e.g. `<T, U>`) for use at a call site.
+fn render_generic_param_idents(generics: &[crate::parser::GenericParam]) -> Vec<Ident> {
+    generics
+        .iter()
+        .map(|g| format_ident!("{}", g.name))
+        .collect()
+}
+
+/// Scan a Rust-expression string for identifier tokens and collect them into
+/// `out`. Keywords and numeric literals are skipped; a token is considered an
+/// identifier if it matches `[A-Za-z_][A-Za-z0-9_]*` bounded by non-ident
+/// characters. This is a deliberately lightweight scanner — we only need it
+/// to decide which declared prop names are referenced by the template, not
+/// to build a real expression AST.
+fn scan_idents(src: &str, out: &mut std::collections::HashSet<String>) {
+    let bytes = src.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        // Skip string literals — their contents never reference props.
+        if b == b'"' {
+            i += 1;
+            while i < bytes.len() && bytes[i] != b'"' {
+                if bytes[i] == b'\\' && i + 1 < bytes.len() {
+                    i += 2;
+                    continue;
+                }
+                i += 1;
+            }
+            i += 1;
+            continue;
+        }
+        if b.is_ascii_alphabetic() || b == b'_' {
+            // An ident preceded by `.` is a field/method access, not a
+            // reference to a top-level binding. Skip it so `props.variant`
+            // only collects `props`, not `variant` — otherwise the binding
+            // `let variant = &props.variant` appears used when it isn't.
+            let preceded_by_dot = i > 0 && bytes[i - 1] == b'.';
+            let start = i;
+            while i < bytes.len()
+                && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_')
+            {
+                i += 1;
+            }
+            if !preceded_by_dot {
+                if let Ok(tok) = std::str::from_utf8(&bytes[start..i]) {
+                    out.insert(tok.to_string());
+                }
+            }
+        } else {
+            i += 1;
+        }
+    }
+}
 
 /// Code generator for converting RUITL templates to Rust code
 pub struct CodeGenerator {
@@ -46,12 +133,19 @@ impl CodeGenerator {
 
         // Combine all generated code
         let imports = &self.generated_imports;
-        let components: Vec<_> = self.generated_components.values().collect();
+        // Emit components in source-declaration order (matches `self.file.components`).
+        // HashMap iteration is non-deterministic and would cause spurious diffs
+        // in the committed sibling *_ruitl.rs files between builds.
+        let components: Vec<&TokenStream> = self
+            .file
+            .components
+            .iter()
+            .filter_map(|c| self.generated_components.get(&c.name))
+            .collect();
 
         Ok(quote! {
             use ruitl::prelude::*;
             use ruitl::html::*;
-            use std::collections::HashMap;
 
             #(#imports)*
 
@@ -70,7 +164,11 @@ impl CodeGenerator {
 
     /// Generate a single import statement
     fn generate_import(&self, import: &ImportDef) -> Result<TokenStream> {
-        let path = &import.path;
+        // Parse the path as a token stream so `std::collections` is emitted
+        // as a real module path, not as a string literal.
+        let path: TokenStream = import.path.parse().map_err(|e| {
+            CompileError::codegen(format!("Invalid import path '{}': {}", import.path, e))
+        })?;
 
         if import.items.is_empty() {
             Ok(quote! {
@@ -92,15 +190,35 @@ impl CodeGenerator {
     /// Generate component definition (props struct and Component impl)
     fn generate_component_definition(&mut self, component: &ComponentDef) -> Result<()> {
         let component_name = format_ident!("{}", component.name);
-        let props_name = format_ident!("{}Props", component.name);
 
         // Generate props struct
         let props_struct = self.generate_props_struct(component)?;
 
-        // Generate component struct
-        let component_struct = quote! {
-            #[derive(Debug)]
-            pub struct #component_name;
+        // Generate component struct. When generics are present, the struct
+        // carries `PhantomData` so the type params appear in the struct body
+        // even if no field actually uses them. `PhantomData<fn() -> (T, U)>`
+        // makes the struct invariant in T/U — avoids accidental subtyping
+        // surprises.
+        let component_struct = if component.generics.is_empty() {
+            quote! {
+                #[derive(Debug)]
+                pub struct #component_name;
+            }
+        } else {
+            let generic_decls = render_generic_param_decls(&component.generics);
+            let generic_idents = render_generic_param_idents(&component.generics);
+            quote! {
+                #[derive(Debug)]
+                pub struct #component_name<#(#generic_decls),*>(
+                    pub ::core::marker::PhantomData<fn() -> (#(#generic_idents,)*)>
+                );
+
+                impl<#(#generic_decls),*> ::core::default::Default for #component_name<#(#generic_idents),*> {
+                    fn default() -> Self {
+                        Self(::core::marker::PhantomData)
+                    }
+                }
+            }
         };
 
         // Store the generated code
@@ -120,7 +238,7 @@ impl CodeGenerator {
 
         if component.props.is_empty() {
             return Ok(quote! {
-                pub type #props_name = ruitl::component::EmptyProps;
+                pub type #props_name = EmptyProps;
             });
         }
 
@@ -130,7 +248,7 @@ impl CodeGenerator {
         for prop in &component.props {
             let field_name = format_ident!("{}", prop.name);
             let field_type: Type = parse_str(&prop.prop_type).map_err(|e| {
-                RuitlError::codegen(format!("Invalid type '{}': {}", prop.prop_type, e))
+                CompileError::codegen(format!("Invalid type '{}': {}", prop.prop_type, e))
             })?;
 
             let field_type = if prop.optional {
@@ -151,14 +269,27 @@ impl CodeGenerator {
             }
         }
 
+        let (struct_decl, impl_decl) = if component.generics.is_empty() {
+            (quote! { pub struct #props_name }, quote! { impl ComponentProps for #props_name })
+        } else {
+            let generic_decls = render_generic_param_decls(&component.generics);
+            let generic_idents = render_generic_param_idents(&component.generics);
+            (
+                quote! { pub struct #props_name<#(#generic_decls),*> },
+                quote! {
+                    impl<#(#generic_decls),*> ComponentProps for #props_name<#(#generic_idents),*>
+                },
+            )
+        };
+
         Ok(quote! {
-            #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-            pub struct #props_name {
+            #[derive(Debug, Clone)]
+            #struct_decl {
                 #(#fields),*
             }
 
-            impl ruitl::component::ComponentProps for #props_name {
-                fn validate(&self) -> ruitl::error::Result<()> {
+            #impl_decl {
+                fn validate(&self) -> Result<()> {
                     #(#field_validations)*
                     Ok(())
                 }
@@ -178,26 +309,73 @@ impl CodeGenerator {
             .iter()
             .find(|c| c.name == template.name)
             .ok_or_else(|| {
-                RuitlError::codegen(format!(
+                CompileError::codegen(format!(
                     "No component definition found for template '{}'",
                     template.name
                 ))
             })?;
 
+        // The template's generic list and the component's must agree. Prefer
+        // the component's list (it owns the type-parameter identity).
+        let generics = if component.generics.is_empty() {
+            &template.generics
+        } else {
+            &component.generics
+        };
+
+        // Collect all identifiers referenced anywhere in the template body so
+        // we only emit `let foo = &props.foo` for props that the body actually
+        // uses. Unused bindings would trigger `unused_variables` warnings in
+        // downstream crates.
+        let referenced = Self::collect_referenced_idents(&template.body);
+
         // Generate prop bindings for local access
-        let prop_bindings = self.generate_prop_bindings(component)?;
+        let prop_bindings = self.generate_prop_bindings(component, &referenced)?;
 
         // Generate the render method body
         let render_body = self.generate_ast_code(&template.body)?;
 
-        // Create the Component implementation
-        let impl_block = quote! {
-            impl ruitl::component::Component for #component_name {
-                type Props = #props_name;
+        // Determine whether the body actually references `context` (only true
+        // when composing child components via `@Component(...)` syntax). If
+        // not, emit the parameter as `_context` to avoid unused-variable warnings.
+        let context_ident = if Self::template_uses_context(&template.body) {
+            format_ident!("context")
+        } else {
+            format_ident!("_context")
+        };
 
-                fn render(&self, props: &Self::Props, context: &ruitl::component::ComponentContext) -> ruitl::error::Result<ruitl::html::Html> {
-                    #prop_bindings
-                    Ok(#render_body)
+        // Create the Component implementation.
+        //
+        // `#[allow(unused_variables)]` covers corner cases our ident-scanner
+        // cannot statically prove are used — e.g. a prop bound at function
+        // top that is immediately shadowed by an `if let Some(x) = &props.x`
+        // pattern in the body. The scanner emits the outer binding defensively
+        // because the pattern variable name matches the prop; the compiler
+        // then sees the outer binding as unused.
+        let impl_block = if generics.is_empty() {
+            quote! {
+                impl Component for #component_name {
+                    type Props = #props_name;
+
+                    #[allow(unused_variables)]
+                    fn render(&self, props: &Self::Props, #context_ident: &ComponentContext) -> Result<Html> {
+                        #prop_bindings
+                        Ok(#render_body)
+                    }
+                }
+            }
+        } else {
+            let generic_decls = render_generic_param_decls(generics);
+            let generic_idents = render_generic_param_idents(generics);
+            quote! {
+                impl<#(#generic_decls),*> Component for #component_name<#(#generic_idents),*> {
+                    type Props = #props_name<#(#generic_idents),*>;
+
+                    #[allow(unused_variables)]
+                    fn render(&self, props: &Self::Props, #context_ident: &ComponentContext) -> Result<Html> {
+                        #prop_bindings
+                        Ok(#render_body)
+                    }
                 }
             }
         };
@@ -211,7 +389,7 @@ impl CodeGenerator {
             self.generated_components
                 .insert(template.name.clone(), combined);
         } else {
-            return Err(RuitlError::codegen(format!(
+            return Err(CompileError::codegen(format!(
                 "Template '{}' has no corresponding component definition",
                 template.name
             )));
@@ -232,18 +410,18 @@ impl CodeGenerator {
 
             TemplateAst::Text(text) => {
                 if text.trim().is_empty() {
-                    Ok(quote! { ruitl::html::Html::Empty })
+                    Ok(quote! { Html::Empty })
                 } else {
-                    Ok(quote! { ruitl::html::Html::text(#text) })
+                    Ok(quote! { Html::text(#text) })
                 }
             }
 
             TemplateAst::Expression(expr) => {
                 let transformed_expr = self.transform_variable_access(expr);
                 let expr: Expr = parse_str(&transformed_expr).map_err(|e| {
-                    RuitlError::codegen(format!("Invalid expression '{}': {}", transformed_expr, e))
+                    CompileError::codegen(format!("Invalid expression '{}': {}", transformed_expr, e))
                 })?;
-                Ok(quote! { ruitl::html::Html::text(&format!("{}", #expr)) })
+                Ok(quote! { Html::text(&format!("{}", #expr)) })
             }
 
             TemplateAst::If {
@@ -272,11 +450,11 @@ impl CodeGenerator {
                 let node_codes = node_codes?;
 
                 Ok(quote! {
-                    ruitl::html::Html::fragment(vec![#(#node_codes),*])
+                    Html::fragment(vec![#(#node_codes),*])
                 })
             }
 
-            TemplateAst::Raw(html) => Ok(quote! { ruitl::html::Html::raw(#html) }),
+            TemplateAst::Raw(html) => Ok(quote! { Html::raw(#html) }),
         }
     }
 
@@ -292,9 +470,9 @@ impl CodeGenerator {
 
         // Start with element creation
         let mut element_code = if self_closing {
-            quote! { ruitl::html::HtmlElement::self_closing(#tag_name) }
+            quote! { HtmlElement::self_closing(#tag_name) }
         } else {
-            quote! { ruitl::html::HtmlElement::new(#tag_name) }
+            quote! { HtmlElement::new(#tag_name) }
         };
 
         // Add attributes
@@ -311,7 +489,7 @@ impl CodeGenerator {
             }
         }
 
-        Ok(quote! { ruitl::html::Html::Element(#element_code) })
+        Ok(quote! { Html::Element(#element_code) })
     }
 
     /// Generate code for an HTML attribute
@@ -323,14 +501,14 @@ impl CodeGenerator {
 
             AttributeValue::Expression(expr) => {
                 let expr: Expr = parse_str(expr).map_err(|e| {
-                    RuitlError::codegen(format!("Invalid attribute expression '{}': {}", expr, e))
+                    CompileError::codegen(format!("Invalid attribute expression '{}': {}", expr, e))
                 })?;
                 Ok(quote! { attr(#attr_name, &format!("{}", #expr)) })
             }
 
             AttributeValue::Conditional(condition) => {
                 let condition: Expr = parse_str(condition).map_err(|e| {
-                    RuitlError::codegen(format!(
+                    CompileError::codegen(format!(
                         "Invalid conditional expression '{}': {}",
                         condition, e
                     ))
@@ -378,7 +556,7 @@ impl CodeGenerator {
     ) -> Result<TokenStream> {
         let transformed_condition = self.transform_variable_access(condition);
         let condition: Expr = parse_str(&transformed_condition).map_err(|e| {
-            RuitlError::codegen(format!(
+            CompileError::codegen(format!(
                 "Invalid if condition '{}': {}",
                 transformed_condition, e
             ))
@@ -400,7 +578,7 @@ impl CodeGenerator {
                 if #condition {
                     #then_code
                 } else {
-                    ruitl::html::Html::Empty
+                    Html::Empty
                 }
             })
         }
@@ -413,10 +591,18 @@ impl CodeGenerator {
         iterable: &str,
         body: &TemplateAst,
     ) -> Result<TokenStream> {
-        let var_name = format_ident!("{}", variable);
+        // Parse the binding as a raw token stream so both simple identifiers
+        // (`item`) and tuple patterns (`(k, v)`) are emitted verbatim into
+        // the generated closure parameter list.
+        let var_pat: TokenStream = variable.parse().map_err(|e| {
+            CompileError::codegen(format!(
+                "Invalid for-loop binding '{}': {}",
+                variable, e
+            ))
+        })?;
         let transformed_iterable = self.transform_variable_access(iterable);
         let iterable: Expr = parse_str(&transformed_iterable).map_err(|e| {
-            RuitlError::codegen(format!(
+            CompileError::codegen(format!(
                 "Invalid for iterable '{}': {}",
                 transformed_iterable, e
             ))
@@ -425,10 +611,10 @@ impl CodeGenerator {
         let body_code = self.generate_ast_code(body)?;
 
         Ok(quote! {
-            ruitl::html::Html::fragment(
+            Html::fragment(
                 #iterable
                     .into_iter()
-                    .map(|#var_name| #body_code)
+                    .map(|#var_pat| #body_code)
                     .collect::<Vec<_>>()
             )
         })
@@ -437,13 +623,23 @@ impl CodeGenerator {
     /// Generate code for match statement
     fn generate_match_code(&self, expression: &str, arms: &[MatchArm]) -> Result<TokenStream> {
         let expr: Expr = parse_str(expression).map_err(|e| {
-            RuitlError::codegen(format!("Invalid match expression '{}': {}", expression, e))
+            CompileError::codegen(format!("Invalid match expression '{}': {}", expression, e))
         })?;
 
         let mut match_arms = Vec::new();
 
         for arm in arms {
-            let pattern = &arm.pattern;
+            // Parse the pattern as a token stream so that string-literal
+            // patterns like `"active"` stay as `"active"` instead of being
+            // re-quoted into `"\"active\""` (which happens if the &String is
+            // interpolated via `quote!` directly).
+            let pattern: proc_macro2::TokenStream =
+                arm.pattern.parse().map_err(|e| {
+                    CompileError::codegen(format!(
+                        "Invalid match pattern '{}': {}",
+                        arm.pattern, e
+                    ))
+                })?;
             let body_code = self.generate_ast_code(&arm.body)?;
 
             match_arms.push(quote! {
@@ -458,12 +654,121 @@ impl CodeGenerator {
         })
     }
 
+    /// Walk a template AST and return true if any node invokes a child component
+    /// (via `@Component(...)` syntax). Such invocations thread `context` through,
+    /// so the render method needs the `context` parameter to be named — otherwise
+    /// it can be `_context` to silence unused-variable warnings.
+    fn template_uses_context(ast: &TemplateAst) -> bool {
+        match ast {
+            TemplateAst::Component { .. } => true,
+            TemplateAst::Element { children, .. } => {
+                children.iter().any(Self::template_uses_context)
+            }
+            TemplateAst::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                Self::template_uses_context(then_branch)
+                    || else_branch
+                        .as_deref()
+                        .map(Self::template_uses_context)
+                        .unwrap_or(false)
+            }
+            TemplateAst::For { body, .. } => Self::template_uses_context(body),
+            TemplateAst::Match { arms, .. } => {
+                arms.iter().any(|arm| Self::template_uses_context(&arm.body))
+            }
+            TemplateAst::Fragment(nodes) => nodes.iter().any(Self::template_uses_context),
+            TemplateAst::Text(_) | TemplateAst::Expression(_) | TemplateAst::Raw(_) => false,
+        }
+    }
+
+    /// Walk a template AST and collect every identifier that appears in any
+    /// embedded Rust expression, attribute value, control-flow condition, or
+    /// child-component prop value. Used by `generate_prop_bindings` to skip
+    /// binding props that the template body never references.
+    fn collect_referenced_idents(ast: &TemplateAst) -> std::collections::HashSet<String> {
+        let mut out = std::collections::HashSet::new();
+        Self::collect_idents_rec(ast, &mut out);
+        out
+    }
+
+    fn collect_idents_rec(ast: &TemplateAst, out: &mut std::collections::HashSet<String>) {
+        match ast {
+            TemplateAst::Text(_) | TemplateAst::Raw(_) => {}
+            TemplateAst::Expression(expr) => scan_idents(expr, out),
+            TemplateAst::Element {
+                attributes,
+                children,
+                ..
+            } => {
+                for attr in attributes {
+                    match &attr.value {
+                        AttributeValue::Static(_) => {}
+                        AttributeValue::Expression(e) | AttributeValue::Conditional(e) => {
+                            scan_idents(e, out);
+                        }
+                    }
+                }
+                for child in children {
+                    Self::collect_idents_rec(child, out);
+                }
+            }
+            TemplateAst::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                scan_idents(condition, out);
+                Self::collect_idents_rec(then_branch, out);
+                if let Some(e) = else_branch {
+                    Self::collect_idents_rec(e, out);
+                }
+            }
+            TemplateAst::For {
+                iterable, body, ..
+            } => {
+                scan_idents(iterable, out);
+                Self::collect_idents_rec(body, out);
+            }
+            TemplateAst::Match { expression, arms } => {
+                scan_idents(expression, out);
+                for arm in arms {
+                    scan_idents(&arm.pattern, out);
+                    Self::collect_idents_rec(&arm.body, out);
+                }
+            }
+            TemplateAst::Component { props, .. } => {
+                for pv in props {
+                    scan_idents(&pv.value, out);
+                }
+            }
+            TemplateAst::Fragment(nodes) => {
+                for n in nodes {
+                    Self::collect_idents_rec(n, out);
+                }
+            }
+        }
+    }
+
     /// Generate code for component invocation
     /// Generate local bindings for props with proper Option handling
-    fn generate_prop_bindings(&self, component: &ComponentDef) -> Result<TokenStream> {
+    fn generate_prop_bindings(
+        &self,
+        component: &ComponentDef,
+        referenced: &std::collections::HashSet<String>,
+    ) -> Result<TokenStream> {
         let mut bindings = Vec::new();
 
         for prop in &component.props {
+            // Only bind props that the template body references; binding
+            // unused props would produce `unused_variables` warnings for
+            // every downstream consumer.
+            if !referenced.contains(&prop.name) {
+                continue;
+            }
+
             let prop_name = format_ident!("{}", prop.name);
 
             // For primitive types, copy the value; for complex types, use reference
@@ -558,7 +863,7 @@ impl CodeGenerator {
         for prop in props {
             let prop_name = format_ident!("{}", prop.name);
             let prop_value: Expr = parse_str(&prop.value).map_err(|e| {
-                RuitlError::codegen(format!("Invalid prop value '{}': {}", prop.value, e))
+                CompileError::codegen(format!("Invalid prop value '{}': {}", prop.value, e))
             })?;
 
             prop_assignments.push(quote! {
@@ -578,34 +883,19 @@ impl CodeGenerator {
     }
 }
 
-/// Helper extension for HtmlElement to support conditional attributes
-pub trait HtmlElementExt {
-    fn attr_if(self, name: &str, condition: bool, value: &str) -> Self;
-    fn attr_optional<K: Into<String>>(self, name: K, value: &Option<String>) -> Self;
-}
-
-impl HtmlElementExt for crate::html::HtmlElement {
-    fn attr_if(self, name: &str, condition: bool, value: &str) -> Self {
-        if condition {
-            self.attr(name, value)
-        } else {
-            self
-        }
-    }
-
-    fn attr_optional<K: Into<String>>(self, name: K, value: &Option<String>) -> Self {
-        if let Some(ref val) = value {
-            self.attr(name, val)
-        } else {
-            self
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::parser::{ComponentDef, PropDef, RuitlFile, TemplateAst, TemplateDef};
+
+    /// Collapse any run of whitespace in a `TokenStream::to_string()` output to
+    /// single spaces. `proc_macro2` emits spaces around every punctuation
+    /// (`text : String`, `HtmlElement :: new`) and rarely puts newlines in
+    /// predictable places, so `contains("text : String")` checks are robust
+    /// against formatting changes if we normalize first.
+    fn normalize_ws(s: &str) -> String {
+        s.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
 
     fn create_test_component() -> ComponentDef {
         ComponentDef {
@@ -649,6 +939,7 @@ mod tests {
                 children: vec![TemplateAst::Expression("props.text".to_string())],
                 self_closing: false,
             },
+            generics: vec![],
         }
     }
 
@@ -663,11 +954,12 @@ mod tests {
 
         let result = generator.generate_props_struct(&component).unwrap();
         let code = result.to_string();
+        let normalized = normalize_ws(&code);
 
-        assert!(code.contains("struct ButtonProps"));
-        assert!(code.contains("text: String"));
-        assert!(code.contains("disabled: Option<bool>"));
-        assert!(code.contains("impl ruitl::component::ComponentProps"));
+        assert!(normalized.contains("struct ButtonProps"));
+        assert!(normalized.contains("text : String"));
+        assert!(normalized.contains("disabled : Option < bool >"));
+        assert!(normalized.contains("impl ComponentProps"));
     }
 
     #[test]
@@ -690,9 +982,10 @@ mod tests {
             .unwrap();
 
         let code = result.to_string();
-        assert!(code.contains("HtmlElement::new"));
-        assert!(code.contains("attr"));
-        assert!(code.contains("child"));
+        let normalized = normalize_ws(&code);
+        assert!(normalized.contains("HtmlElement :: new"));
+        assert!(normalized.contains("attr"));
+        assert!(normalized.contains("child"));
     }
 
     #[test]
@@ -707,8 +1000,9 @@ mod tests {
         let result = generator.generate_ast_code(&ast).unwrap();
 
         let code = result.to_string();
-        assert!(code.contains("user.name"));
-        assert!(code.contains("Html::text"));
+        let normalized = normalize_ws(&code);
+        assert!(normalized.contains("user . name"));
+        assert!(normalized.contains("Html :: text"));
     }
 
     #[test]
@@ -778,10 +1072,11 @@ mod tests {
             .unwrap();
 
         let code = result.to_string();
-        assert!(code.contains("Button"));
-        assert!(code.contains("ButtonProps"));
-        assert!(code.contains("text: \"Click me\""));
-        assert!(code.contains("disabled: false"));
+        let normalized = normalize_ws(&code);
+        assert!(normalized.contains("Button"));
+        assert!(normalized.contains("ButtonProps"));
+        assert!(normalized.contains("text : \"Click me\""));
+        assert!(normalized.contains("disabled : false"));
     }
 
     #[test]
@@ -799,5 +1094,47 @@ mod tests {
         assert!(code.contains("struct ButtonProps"));
         assert!(code.contains("impl Component for Button"));
         assert!(code.contains("fn render"));
+    }
+
+    #[test]
+    fn test_generics_emit_on_props_and_component_structs() {
+        use crate::parser::GenericParam;
+        let mut component = ComponentDef {
+            name: "Box".to_string(),
+            props: vec![PropDef {
+                name: "value".to_string(),
+                prop_type: "T".to_string(),
+                optional: false,
+                default_value: None,
+            }],
+            generics: vec![GenericParam {
+                name: "T".to_string(),
+                bounds: vec![],
+            }],
+        };
+        // Trigger the "requires matching template" path below: simplest to
+        // just test props struct emission here.
+        component.generics = vec![GenericParam {
+            name: "T".to_string(),
+            bounds: vec!["Clone".to_string()],
+        }];
+
+        let file = RuitlFile {
+            components: vec![component.clone()],
+            templates: vec![],
+            imports: vec![],
+        };
+        let mut gen = CodeGenerator::new(file);
+        gen.generate_component_definition(&component).unwrap();
+        let combined = gen
+            .generated_components
+            .get(&component.name)
+            .expect("component code stored");
+        let out = normalize_ws(&combined.to_string());
+
+        assert!(out.contains("pub struct BoxProps < T :"));
+        assert!(out.contains("Clone"));
+        assert!(out.contains("'static"));
+        assert!(out.contains("PhantomData"));
     }
 }

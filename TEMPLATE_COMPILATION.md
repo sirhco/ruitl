@@ -291,11 +291,11 @@ Templates are automatically compiled during `cargo build` if you have the build 
 Use the RUITL CLI for manual compilation:
 
 ```bash
-# Compile all .ruitl files in src/templates
-ruitl compile --src-dir src/templates --out-dir src/generated
+# Compile all .ruitl files in templates/ (produces sibling *_ruitl.rs next to each source)
+ruitl compile --src-dir templates
 
 # Watch mode for development
-ruitl compile --src-dir src/templates --out-dir src/generated --watch
+ruitl compile --src-dir templates --watch
 
 # Create new template
 ruitl template UserCard --type component --dir templates
@@ -303,15 +303,16 @@ ruitl template UserCard --type component --dir templates
 
 ### 6. Using Generated Components
 
-After compilation, use the generated components in your Rust code:
+After compilation, use the sibling-generated components (committed to source control, templ-style):
 
 ```rust
 // src/main.rs
 use ruitl::prelude::*;
 
-// Import generated components
-mod generated;
-use generated::*;
+// Pull in the auto-generated templates/mod.rs
+#[path = "../templates/mod.rs"]
+mod templates;
+use templates::*;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -347,16 +348,16 @@ my-ruitl-app/
 ├── src/
 │   ├── main.rs
 │   ├── lib.rs
-│   ├── generated/          # Generated Rust files
-│   │   ├── mod.rs
-│   │   ├── button.rs
-│   │   └── usercard.rs
 │   └── models/
 │       └── user.rs
-├── templates/              # RUITL template files
+├── templates/              # RUITL sources + sibling generated *_ruitl.rs
 │   ├── Button.ruitl
+│   ├── Button_ruitl.rs     # generated (checked in)
 │   ├── UserCard.ruitl
-│   └── Layout.ruitl
+│   ├── UserCard_ruitl.rs   # generated (checked in)
+│   ├── Layout.ruitl
+│   ├── Layout_ruitl.rs     # generated (checked in)
+│   └── mod.rs              # auto-generated re-exports
 └── static/
     ├── style.css
     └── images/

@@ -40,12 +40,19 @@ pub enum Commands {
         /// Source directory containing .ruitl files
         #[arg(short, long, default_value = "templates")]
         src_dir: PathBuf,
-        /// Output directory for generated Rust files
-        #[arg(short, long, default_value = "generated")]
-        out_dir: PathBuf,
         /// Watch for changes and recompile
         #[arg(short, long)]
         watch: bool,
+    },
+    /// Validate the `[[routes]]` entries in `ruitl.toml` (static-site config).
+    /// Actual rendering happens from the user's own binary by calling
+    /// `ruitl::build::render_site` — see the crate docs for the dispatcher
+    /// pattern. This subcommand confirms the config parses, each `props_file`
+    /// exists, and no two routes write to the same output path.
+    ValidateRoutes {
+        /// Config file path. Defaults to `ruitl.toml` in the current directory.
+        #[arg(short, long, default_value = "ruitl.toml")]
+        config: PathBuf,
     },
     /// Generate a scaffold project structure with example components
     Scaffold {
@@ -68,24 +75,45 @@ pub enum Commands {
 
 /// CLI application runner
 pub struct CliApp {
-    config: RuitlConfig,
     verbose: bool,
+}
+
+/// A minimal `Send`-able logger used inside the watch-mode callback. The
+/// `hotwatch` watcher moves its handler onto a background thread, so we
+/// cannot capture `&CliApp` directly.
+#[derive(Clone)]
+struct WatchLogger {
+    verbose: bool,
+}
+
+#[cfg(feature = "dev")]
+impl WatchLogger {
+    fn info(&self, message: &str) {
+        if self.verbose {
+            println!("{} {}", "info:".bright_blue().bold(), message);
+        }
+    }
+    fn success(&self, message: &str) {
+        println!("{}", message.green());
+    }
+    fn warning(&self, message: &str) {
+        println!("{} {}", "warning:".bright_yellow().bold(), message);
+    }
 }
 
 impl CliApp {
     /// Create a new CLI application
-    pub fn new(config: RuitlConfig, verbose: bool) -> Self {
-        Self { config, verbose }
+    pub fn new(_config: RuitlConfig, verbose: bool) -> Self {
+        Self { verbose }
     }
 
     /// Run the CLI application
     pub async fn run(&self, command: Commands) -> Result<()> {
         match command {
-            Commands::Compile {
-                src_dir,
-                out_dir,
-                watch,
-            } => self.compile_templates(&src_dir, &out_dir, watch).await,
+            Commands::Compile { src_dir, watch } => {
+                self.compile_templates(&src_dir, watch).await
+            }
+            Commands::ValidateRoutes { config } => self.validate_routes(&config),
             Commands::Scaffold {
                 name,
                 target,
@@ -102,13 +130,11 @@ impl CliApp {
         }
     }
 
-    /// Compile .ruitl templates to Rust code
-    async fn compile_templates(&self, src_dir: &Path, out_dir: &Path, watch: bool) -> Result<()> {
-        use crate::codegen::CodeGenerator;
-        use crate::parser::RuitlParser;
-        use walkdir::WalkDir;
-
-        // Validate input directory
+    /// Compile .ruitl templates to Rust code.
+    ///
+    /// Writes generated `*_ruitl.rs` files next to each `.ruitl` source,
+    /// mirroring Go Templ's sibling `_templ.go` convention.
+    async fn compile_templates(&self, src_dir: &Path, watch: bool) -> Result<()> {
         if !src_dir.exists() {
             return Err(RuitlError::config(format!(
                 "Source directory '{}' does not exist",
@@ -118,273 +144,149 @@ impl CliApp {
 
         self.log_info("Compiling RUITL templates...");
 
-        let compile_fn = || async {
-            let mut templates_compiled = 0;
-            let mut component_names = Vec::new();
-            let mut errors = Vec::new();
+        let compile_once = || -> Result<()> {
+            // `compile_dir_sibling` walks the directory, writes sibling
+            // *_ruitl.rs files, and emits an auto-generated mod.rs that
+            // re-exports each. CLI and build.rs share this entry point so
+            // their output is identical.
+            let written = ruitl_compiler::compile_dir_sibling(src_dir).map_err(|e| {
+                RuitlError::generic(format!("Failed to compile templates: {}", e))
+            })?;
 
-            // Create output directory if it doesn't exist
-            if !out_dir.exists() {
-                fs::create_dir_all(out_dir).map_err(|e| {
-                    RuitlError::config(format!(
-                        "Failed to create output directory '{}': {}",
-                        out_dir.display(),
-                        e
-                    ))
-                })?;
-            }
-
-            // Find all .ruitl files
-            for entry in WalkDir::new(src_dir) {
-                let entry = match entry {
-                    Ok(entry) => entry,
-                    Err(e) => {
-                        errors.push(format!("Failed to read directory entry: {}", e));
-                        continue;
-                    }
-                };
-                let path = entry.path();
-
-                if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("ruitl") {
-                    match self.compile_single_template(path, src_dir, out_dir) {
-                        Ok(component_name) => {
-                            templates_compiled += 1;
-                            component_names.push(component_name);
-
-                            if self.verbose {
-                                let relative_path = path.strip_prefix(src_dir).unwrap_or(path);
-                                let mut rust_file = out_dir.join(relative_path);
-                                rust_file.set_extension("rs");
-
-                                self.log_info(&format!(
-                                    "Compiled {} -> {}",
-                                    path.display().to_string().bright_blue(),
-                                    rust_file.display().to_string().green()
-                                ));
-                            }
-                        }
-                        Err(e) => {
-                            errors.push(format!("Failed to compile {}: {}", path.display(), e));
-                        }
-                    }
+            if self.verbose {
+                for out in &written {
+                    self.log_info(&format!("Wrote {}", out.display().to_string().green()));
                 }
             }
 
-            // Generate mod.rs file
-            if templates_compiled > 0 {
-                self.generate_mod_file(out_dir, &component_names)?;
-            }
-
-            // Report results
-            if !errors.is_empty() {
-                self.log_error("Compilation completed with errors:");
-                for error in &errors {
-                    self.log_error(&format!("  • {}", error));
-                }
-
-                if templates_compiled == 0 {
-                    return Err(RuitlError::generic("No templates compiled successfully"));
-                }
-            }
-
-            self.log_success(&format!("✓ Compiled {} templates", templates_compiled));
-            if !errors.is_empty() {
-                self.log_info(&format!("⚠ {} errors encountered", errors.len()));
-            }
-
-            Ok::<(), RuitlError>(())
+            self.log_success(&format!("✓ Compiled {} templates", written.len()));
+            Ok(())
         };
+
+        compile_once()?;
 
         if watch {
-            self.log_info("Watching for changes...");
-            // TODO: Implement file watching
-            compile_fn().await?;
-            self.log_info("Watch mode not yet implemented, compiled once");
-        } else {
-            compile_fn().await?;
+            self.run_watch_loop(src_dir, &compile_once)?;
         }
 
         Ok(())
     }
 
-    /// Compile a single template file
-    fn compile_single_template(
-        &self,
-        template_path: &Path,
-        src_dir: &Path,
-        out_dir: &Path,
-    ) -> Result<String> {
-        use crate::codegen::CodeGenerator;
-        use crate::parser::RuitlParser;
+    /// Validate the `[[routes]]` section of a `ruitl.toml` configuration.
+    ///
+    /// Checks each route's `props_file` actually exists on disk and that no
+    /// two routes resolve to the same output path. Rendering itself happens
+    /// from the user's binary via `ruitl::build::render_site`.
+    fn validate_routes(&self, config_path: &Path) -> Result<()> {
+        use std::collections::HashSet;
 
-        // Read template file
-        let content = fs::read_to_string(template_path).map_err(|e| {
-            RuitlError::config(format!(
-                "Failed to read template file '{}': {}",
-                template_path.display(),
-                e
-            ))
-        })?;
+        let cfg = RuitlConfig::from_file(config_path)?;
+        if cfg.routes.is_empty() {
+            self.log_warning("No `[[routes]]` entries in config — nothing to validate.");
+            return Ok(());
+        }
 
-        // Parse template
-        let mut parser = RuitlParser::new(content);
-        let ruitl_ast = parser.parse().map_err(|e| {
-            RuitlError::template(format!(
-                "Failed to parse {}: {}",
-                template_path.display(),
-                e
-            ))
-        })?;
+        let mut seen_paths: HashSet<String> = HashSet::new();
+        let mut errors: Vec<String> = Vec::new();
 
-        // Extract component name for mod.rs
-        let component_name = if let Some(component) = ruitl_ast.components.first() {
-            component.name.clone()
-        } else {
-            template_path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("Unknown")
-                .to_string()
-        };
-
-        // Generate Rust code
-        let mut generator = CodeGenerator::new(ruitl_ast);
-        let rust_code = generator.generate().map_err(|e| {
-            RuitlError::codegen(format!(
-                "Failed to generate code for {}: {}",
-                template_path.display(),
-                e
-            ))
-        })?;
-
-        // Format the generated code
-        let formatted_code = self.format_generated_code(&rust_code.to_string())?;
-
-        // Write generated file
-        let relative_path = template_path.strip_prefix(src_dir).unwrap_or(template_path);
-        let mut rust_file = out_dir.join(relative_path);
-
-        // Convert filename to lowercase to match module naming convention
-        if let Some(filename) = rust_file.file_stem() {
-            if let Some(filename_str) = filename.to_str() {
-                let lowercase_filename = format!("{}.rs", filename_str.to_lowercase());
-                rust_file.set_file_name(lowercase_filename);
+        for route in &cfg.routes {
+            if !seen_paths.insert(route.path.clone()) {
+                errors.push(format!("duplicate route path `{}`", route.path));
             }
+            if !route.props_file.exists() {
+                errors.push(format!(
+                    "route `{}` references missing props_file `{}`",
+                    route.path,
+                    route.props_file.display()
+                ));
+            }
+        }
+
+        if errors.is_empty() {
+            self.log_success(&format!(
+                "✓ {} route(s) OK in {}",
+                cfg.routes.len(),
+                config_path.display()
+            ));
+            Ok(())
         } else {
-            rust_file.set_extension("rs");
+            for err in &errors {
+                self.log_warning(err);
+            }
+            Err(RuitlError::config(format!(
+                "Route validation failed with {} error(s)",
+                errors.len()
+            )))
         }
-
-        if let Some(parent) = rust_file.parent() {
-            fs::create_dir_all(parent).map_err(|e| {
-                RuitlError::config(format!(
-                    "Failed to create directory '{}': {}",
-                    parent.display(),
-                    e
-                ))
-            })?;
-        }
-
-        fs::write(&rust_file, formatted_code).map_err(|e| {
-            RuitlError::config(format!(
-                "Failed to write generated file '{}': {}",
-                rust_file.display(),
-                e
-            ))
-        })?;
-
-        Ok(component_name)
     }
 
-    /// Format generated Rust code for better readability
-    fn format_generated_code(&self, code: &str) -> Result<String> {
-        // Basic formatting improvements
-        let formatted = code
-            .replace(" ; ", ";\n")
-            .replace(" { ", " {\n    ")
-            .replace(" } ", "\n}\n")
-            .replace(" . ", ".\n    ");
+    /// Enter a file-watch loop that re-runs `compile_once` when any `.ruitl`
+    /// file under `src_dir` changes. Gated on the `dev` feature (`hotwatch`
+    /// is an optional dependency). When the feature is off, returns a clear
+    /// error rather than silently doing nothing.
+    #[cfg(feature = "dev")]
+    fn run_watch_loop<F>(&self, src_dir: &Path, _compile_once: &F) -> Result<()>
+    where
+        F: Fn() -> Result<()>,
+    {
+        use hotwatch::{Event, Hotwatch};
+        use std::path::PathBuf;
 
-        // Try to use rustfmt if available, otherwise return basic formatting
-        match std::process::Command::new("rustfmt")
-            .arg("--emit=stdout")
-            .arg("--edition=2021")
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn()
-        {
-            Ok(mut child) => {
-                if let Some(stdin) = child.stdin.take() {
-                    use std::io::Write;
-                    let mut stdin = stdin;
-                    let _ = stdin.write_all(formatted.as_bytes());
-                    drop(stdin);
-                }
+        self.log_info(&format!(
+            "Watching {} for changes (Ctrl+C to exit)",
+            src_dir.display().to_string().bright_blue()
+        ));
 
-                match child.wait_with_output() {
-                    Ok(output) if output.status.success() => {
-                        return Ok(String::from_utf8_lossy(&output.stdout).to_string());
-                    }
-                    _ => {
-                        if self.verbose {
-                            self.log_info("rustfmt not available, using basic formatting");
-                        }
-                    }
+        let mut hotwatch = Hotwatch::new_with_custom_delay(std::time::Duration::from_millis(150))
+            .map_err(|e| RuitlError::generic(format!("Failed to start watcher: {}", e)))?;
+
+        let src_owned = src_dir.to_path_buf();
+        let log = self.clone_logger();
+        hotwatch
+            .watch(src_dir, move |event: Event| {
+                // notify 4's DebouncedEvent is a path-bearing enum. Match the
+                // variants that indicate real content changes, and skip the
+                // `Notice*` variants (fired before the filesystem settles) +
+                // `Chmod` (permission-only).
+                let changed: Option<&PathBuf> = match &event {
+                    Event::Create(p)
+                    | Event::Write(p)
+                    | Event::Remove(p)
+                    | Event::Rename(p, _) => Some(p),
+                    _ => None,
+                };
+                let Some(path) = changed else { return };
+                if path.extension().map(|e| e != "ruitl").unwrap_or(true) {
+                    return;
                 }
-            }
-            Err(_) => {
-                if self.verbose {
-                    self.log_info("rustfmt not found, using basic formatting");
+                log.info(&format!("Change detected in {} — recompiling...", path.display()));
+                match ruitl_compiler::compile_dir_sibling(&src_owned) {
+                    Ok(out) => log.success(&format!("✓ Recompiled {} templates", out.len())),
+                    Err(e) => log.warning(&format!("Recompile failed: {}", e)),
                 }
-            }
+            })
+            .map_err(|e| RuitlError::generic(format!("Failed to watch '{}': {}", src_dir.display(), e)))?;
+
+        // Park the main thread; hotwatch drives callbacks on its own thread.
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(60));
         }
-
-        Ok(formatted)
     }
 
-    /// Generate a mod.rs file for the compiled templates
-    fn generate_mod_file(&self, out_dir: &Path, component_names: &[String]) -> Result<()> {
-        let mod_file = out_dir.join("mod.rs");
+    #[cfg(not(feature = "dev"))]
+    fn run_watch_loop<F>(&self, _src_dir: &Path, _compile_once: &F) -> Result<()>
+    where
+        F: Fn() -> Result<()>,
+    {
+        Err(RuitlError::generic(
+            "Watch mode requires the 'dev' feature. Rebuild with `cargo build --features dev` (or remove --no-default-features).",
+        ))
+    }
 
-        let mut content = String::new();
-        content.push_str("//! Generated RUITL components\n");
-        content.push_str("//! This file is automatically generated by RUITL CLI\n");
-        content.push_str("//! DO NOT EDIT MANUALLY\n\n");
-
-        // Add module declarations
-        for name in component_names {
-            let module_name = name.to_lowercase();
-            content.push_str(&format!("pub mod {};\n", module_name));
+    fn clone_logger(&self) -> WatchLogger {
+        WatchLogger {
+            verbose: self.verbose,
         }
-
-        content.push('\n');
-
-        // Add re-exports
-        content.push_str("// Re-exports for convenience\n");
-        for name in component_names {
-            let module_name = name.to_lowercase();
-            content.push_str(&format!(
-                "pub use {}::{{{}, {}Props}};\n",
-                module_name, name, name
-            ));
-        }
-
-        fs::write(&mod_file, content).map_err(|e| {
-            RuitlError::config(format!(
-                "Failed to write mod.rs file '{}': {}",
-                mod_file.display(),
-                e
-            ))
-        })?;
-
-        if self.verbose {
-            self.log_info(&format!(
-                "Generated module file: {}",
-                mod_file.display().to_string().green()
-            ));
-        }
-
-        Ok(())
     }
 
     /// Generate a scaffold project structure
@@ -418,9 +320,6 @@ impl CliApp {
         // Generate build files
         self.generate_build_files(&project_dir, name, with_server)?;
 
-        // Generate placeholder generated files
-        self.generate_placeholder_generated_files(&project_dir)?;
-
         // Generate RUITL binary wrapper
         self.generate_ruitl_binary_wrapper(&project_dir)?;
 
@@ -451,7 +350,6 @@ impl CliApp {
         let dirs = vec![
             "src",
             "templates",
-            "generated",
             "static",
             "static/css",
             "static/js",
@@ -499,7 +397,6 @@ authors = ["Your Name <your.email@example.com>"]
 
 [build]
 template_dir = "templates"
-out_dir = "generated"
 src_dir = "src"
 "#,
             name
@@ -512,9 +409,6 @@ src_dir = "src"
         let gitignore = r#"# Rust
 target/
 Cargo.lock
-
-# RUITL generated files
-generated/
 
 # IDE
 .vscode/
@@ -578,7 +472,7 @@ cargo run
 ## 🏗️ How It Works
 
 1. **Templates** in `templates/` are written in RUITL syntax
-2. **Compilation** generates Rust structs and render functions in `generated/`
+2. **Compilation** generates a sibling `*_ruitl.rs` next to every `*.ruitl` file (templ-style, checked in)
 3. **Server handlers** import and use these generated components
 4. **Type-safe rendering** produces HTML at runtime
 
@@ -587,18 +481,22 @@ cargo run
 ```
 {}
 ├── src/
-│   ├── main.rs        # Server with component-based handlers
-│   └── handlers/      # HTTP handlers using RUITL components
-├── bin/ruitl.rs       # RUITL CLI binary wrapper
-├── templates/         # RUITL template files (.ruitl)
-│   ├── Button.ruitl   # Interactive button component
-│   ├── Card.ruitl     # Content card component
-│   ├── Layout.ruitl   # Basic HTML layout
-│   └── Page.ruitl     # Complete page with navigation
-├── generated/         # Generated Rust code (auto-generated)
-├── static/css/        # CSS styles
-├── ruitl.toml         # RUITL configuration
-└── Cargo.toml         # Rust project configuration
+│   ├── main.rs            # Server with component-based handlers
+│   └── handlers/          # HTTP handlers using RUITL components
+├── bin/ruitl.rs           # RUITL CLI binary wrapper
+├── templates/             # RUITL template files (.ruitl) AND their generated siblings
+│   ├── Button.ruitl       # Interactive button component
+│   ├── Button_ruitl.rs    # Auto-generated (checked in, templ-style)
+│   ├── Card.ruitl
+│   ├── Card_ruitl.rs
+│   ├── Layout.ruitl
+│   ├── Layout_ruitl.rs
+│   ├── Page.ruitl
+│   ├── Page_ruitl.rs
+│   └── mod.rs             # Auto-generated re-exports
+├── static/css/            # CSS styles
+├── ruitl.toml             # RUITL configuration
+└── Cargo.toml             # Rust project configuration
 ```
 
 ## 🧩 Template Examples
@@ -631,8 +529,8 @@ ruitl Button(props: ButtonProps) {{
 ### Usage in Handler
 
 ```rust
-// In src/handlers/mod.rs - components are imported and used!
-use crate::generated::{{Button, ButtonProps}};
+// In src/handlers/mod.rs - components are imported from the sibling *_ruitl.rs files
+use crate::templates::{{Button, ButtonProps}};
 
 let button = Button;
 let props = ButtonProps {{
@@ -892,6 +790,7 @@ path = "bin/ruitl.rs"
 # For git version: ruitl = {{ git = "https://github.com/sirhco/ruitl.git" }}
 # For local development: ruitl = {{ path = "../path/to/ruitl" }}
 ruitl = {{ git = "https://github.com/sirhco/ruitl.git" }}
+tokio = {{ version = "1.0", features = ["rt-multi-thread", "macros"] }}
 serde = {{ version = "1.0", features = ["derive"] }}
 serde_json = "1.0"
 anyhow = "1.0"
@@ -911,20 +810,22 @@ watch = "cargo run --bin ruitl -- compile --watch"
         fs::write(project_dir.join("Cargo").with_extension("toml"), cargo_toml)
             .map_err(|e| RuitlError::config(format!("Failed to write Cargo.toml: {}", e)))?;
 
-        // Generate lib.rs if no server, or basic lib.rs if server
+        // Generate lib.rs if no server, or basic lib.rs if server. In both
+        // cases we re-export the sibling-generated templates via the
+        // auto-generated templates/mod.rs (templ-style).
         let lib_rs = if with_server {
             r#"//! RUITL project library
 
-#[path = "../generated/mod.rs"]
-pub mod generated;
-pub use generated::*;
+#[path = "../templates/mod.rs"]
+pub mod templates;
+pub use templates::*;
 "#
         } else {
             r#"//! RUITL project library
 
-#[path = "../generated/mod.rs"]
-pub mod generated;
-pub use generated::*;
+#[path = "../templates/mod.rs"]
+pub mod templates;
+pub use templates::*;
 
 pub fn main() {
     println!("Welcome to your RUITL project!");
@@ -947,34 +848,13 @@ pub fn main() {
         Ok(())
     }
 
-    /// Generate placeholder generated files so project compiles initially
-    fn generate_placeholder_generated_files(&self, project_dir: &Path) -> Result<()> {
-        // Generate placeholder mod.rs in generated directory
-        let placeholder_mod = r#"//! Generated RUITL components
-//! This file is automatically generated by RUITL CLI
-//! Run `ruitl compile` to generate actual components
-
-// Placeholder components - will be replaced when templates are compiled
-"#;
-
-        fs::write(project_dir.join("generated/mod.rs"), placeholder_mod)
-            .map_err(|e| RuitlError::config(format!("Failed to write generated/mod.rs: {}", e)))?;
-
-        Ok(())
-    }
-
     /// Compile initial templates in a new project
     async fn compile_initial_templates(&self, project_dir: &Path) -> Result<()> {
         self.log_info("Compiling example templates...");
 
         let templates_dir = project_dir.join("templates");
-        let output_dir = project_dir.join("generated");
 
-        // Use the existing compile_templates method
-        match self
-            .compile_templates(&templates_dir, &output_dir, false)
-            .await
-        {
+        match self.compile_templates(&templates_dir, false).await {
             Ok(_) => {
                 self.log_success("✓ Example templates compiled successfully");
                 Ok(())
@@ -982,7 +862,7 @@ pub fn main() {
             Err(e) => {
                 self.log_warning(&format!("Could not compile templates: {}", e));
                 self.log_info("You can compile them later with: ruitl compile");
-                Ok(()) // Don't fail the scaffold process
+                Ok(())
             }
         }
     }
@@ -1106,7 +986,6 @@ async fn main() {
         println!();
     }
 
-    /// Log an info message
     fn log_info(&self, message: &str) {
         if self.verbose {
             println!("{} {}", "info:".bright_blue().bold(), message);
@@ -1116,11 +995,6 @@ async fn main() {
     /// Log a success message
     fn log_success(&self, message: &str) {
         println!("{}", message.green());
-    }
-
-    /// Log an error message
-    fn log_error(&self, message: &str) {
-        eprintln!("{} {}", "error:".bright_red().bold(), message);
     }
 
     /// Log a warning message
@@ -1140,8 +1014,8 @@ use std::net::SocketAddr;
 use tokio;
 
 mod handlers;
-#[path = "../generated/mod.rs"]
-mod generated;
+#[path = "../templates/mod.rs"]
+mod templates;
 
 use handlers::*;
 
@@ -1195,8 +1069,8 @@ use hyper::{{Body, Response, StatusCode}};
 use std::fs;
 use ruitl::{{Component, ComponentContext}};
 
-// Import generated components (available after running `ruitl compile`)
-use crate::generated::{{Button, ButtonProps, Card, CardProps}};
+// Import generated components from sibling *_ruitl.rs files
+use crate::templates::{{Button, ButtonProps, Card, CardProps}};
 
 pub async fn serve_home() -> Response<Body> {{
     let context = ComponentContext::new();

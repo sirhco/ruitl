@@ -1,7 +1,12 @@
 //! Server Integration Example for RUITL
 //!
-//! This example demonstrates how to integrate RUITL-generated components with an HTTP server
-//! to serve dynamic HTML pages to browsers.
+//! Demonstrates integrating RUITL-compiled components with an HTTP server.
+//!
+//! The `DemoButton` and `DemoUserCard` components are loaded from their
+//! sibling `*_ruitl.rs` files (generated at build time from
+//! `examples/demo_templates/*.ruitl`) — no hand-writing. The `Page`,
+//! `Button`, and `UserCard` definitions below are legacy in-file showcases
+//! kept for backward compatibility with the routes that still use them.
 //!
 //! Run with: cargo run --example server_integration
 //! Then visit: http://localhost:3000
@@ -13,7 +18,13 @@ use std::convert::Infallible;
 use std::net::SocketAddr;
 use tokio;
 
-// Example generated components (in real usage, these come from .ruitl files)
+// Pull in the generated siblings for the demo_templates directory.
+#[path = "demo_templates/mod.rs"]
+mod demo_templates;
+use demo_templates::{DemoButton, DemoButtonProps, DemoUserCard, DemoUserCardProps};
+
+// Legacy in-file components (Page/Button/UserCard) — kept so existing
+// routes still work during the transition.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PageProps {
     pub title: String,
@@ -58,7 +69,10 @@ impl Component for Page {
                         div()
                             .class("container")
                             .child(Html::Element(h1().text(&props.title)))
-                            .child(Html::Element(div().text(&props.content))),
+                            // `content` is pre-rendered HTML markup (e.g. the
+                            // about-page body with <h2>/<ul>/<a>), so emit it
+                            // raw rather than escaping with `.text()`.
+                            .child(Html::Element(div().raw(&props.content))),
                     )),
                 )),
         ))
@@ -161,6 +175,7 @@ async fn handle_request(req: Request<Body>) -> std::result::Result<Response<Body
     let response = match (req.method(), req.uri().path()) {
         (&Method::GET, "/") => serve_home_page().await,
         (&Method::GET, "/users") => serve_users_page().await,
+        (&Method::GET, "/demo") => serve_demo_page().await,
         (&Method::GET, "/about") => serve_about_page().await,
         (&Method::GET, "/api/users") => serve_users_api().await,
         _ => serve_404().await,
@@ -180,7 +195,7 @@ async fn serve_home_page() -> Response<Body> {
         Ok(html) => {
             let body = add_navigation(&html);
             Response::builder()
-                .header("content-type", "text/html")
+                .header("content-type", "text/html; charset=utf-8")
                 .body(Body::from(body))
                 .unwrap()
         }
@@ -228,7 +243,61 @@ async fn serve_users_page() -> Response<Body> {
         Ok(html) => {
             let body = add_navigation(&html);
             Response::builder()
-                .header("content-type", "text/html")
+                .header("content-type", "text/html; charset=utf-8")
+                .body(Body::from(body))
+                .unwrap()
+        }
+        Err(e) => error_response(&format!("Render error: {}", e)),
+    }
+}
+
+/// Demonstrates rendering via sibling-generated `*_ruitl.rs` files. The two
+/// components (`DemoButton`, `DemoUserCard`) live in
+/// `examples/demo_templates/` and are compiled by `build.rs` at build time.
+async fn serve_demo_page() -> Response<Body> {
+    let ctx = ComponentContext::new();
+
+    let btn = DemoButton;
+    let btn_html = btn
+        .render(
+            &DemoButtonProps {
+                text: "Back to home".to_string(),
+                variant: "primary".to_string(),
+                href: Some("/".to_string()),
+            },
+            &ctx,
+        )
+        .map(|h| h.render())
+        .unwrap_or_default();
+
+    let card = DemoUserCard;
+    let card_html = card
+        .render(
+            &DemoUserCardProps {
+                name: "Ada Lovelace".to_string(),
+                email: "ada@example.com".to_string(),
+                role: "Mathematician".to_string(),
+            },
+            &ctx,
+        )
+        .map(|h| h.render())
+        .unwrap_or_default();
+
+    let body = format!(
+        "<h2>Components compiled from .ruitl</h2>\n<p>The markup below is rendered by real Rust structs generated at build time from <code>examples/demo_templates/*.ruitl</code>.</p>\n{}\n{}",
+        card_html, btn_html
+    );
+
+    let page = Page;
+    let props = PageProps {
+        title: "Compiled Component Demo".to_string(),
+        content: body,
+    };
+    match render_full_page(page, props).await {
+        Ok(html) => {
+            let body = add_navigation(&html);
+            Response::builder()
+                .header("content-type", "text/html; charset=utf-8")
                 .body(Body::from(body))
                 .unwrap()
         }
@@ -273,7 +342,7 @@ async fn serve_about_page() -> Response<Body> {
         Ok(html) => {
             let body = add_navigation(&html);
             Response::builder()
-                .header("content-type", "text/html")
+                .header("content-type", "text/html; charset=utf-8")
                 .body(Body::from(body))
                 .unwrap()
         }
@@ -314,7 +383,7 @@ async fn serve_404() -> Response<Body> {
             let body = add_navigation(&html);
             Response::builder()
                 .status(StatusCode::NOT_FOUND)
-                .header("content-type", "text/html")
+                .header("content-type", "text/html; charset=utf-8")
                 .body(Body::from(body))
                 .unwrap()
         }

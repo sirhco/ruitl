@@ -4,11 +4,9 @@
 //! and function as expected with proper variable access and advanced features.
 
 use ruitl::component::{Component, ComponentContext};
-use ruitl::html::Html;
 
-// Include the generated components from CLI output
-// Note: In a real scenario, these would be generated in the build output
-#[path = "../generated-cli-v3/mod.rs"]
+// Include the generated components from their sibling *_ruitl.rs files.
+#[path = "../templates/mod.rs"]
 mod generated_components;
 
 use generated_components::*;
@@ -166,11 +164,9 @@ fn test_props_validation() {
         name: "Test".to_string(),
     };
 
-    // Should be serializable
-    let json = serde_json::to_string(&hello_props);
-    assert!(json.is_ok());
-
-    // Should be cloneable
+    // Should be cloneable (serde Serialize/Deserialize are intentionally NOT
+    // derived — templ-style generated components aren't serialized by default.
+    // Users who need it can derive serde on their own wrapper types.)
     let cloned = hello_props.clone();
     assert_eq!(cloned.name, "Test");
 }

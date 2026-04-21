@@ -1,0 +1,17 @@
+// UserList.ruitl — exercises @Component composition.
+// Iterates over a Vec<User> and instantiates a @UserCard for each entry.
+component UserList {
+    props {
+        users: Vec<User>,
+    }
+}
+
+ruitl UserList(users: Vec<User>) {
+    <ul class="user-list">
+        for u in users {
+            <li class="user-list-item">
+                @UserCard(name: u.name.clone(), email: u.email.clone(), role: u.role.clone())
+            </li>
+        }
+    </ul>
+}

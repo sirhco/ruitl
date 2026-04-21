@@ -1,0 +1,46 @@
+---
+source: tests/codegen_snapshots.rs
+expression: out
+---
+use ruitl::prelude::*;
+use ruitl::html::*;
+#[derive(Debug, Clone)]
+pub struct GateProps {
+    pub open: bool,
+    pub label: String,
+}
+impl ComponentProps for GateProps {
+    fn validate(&self) -> Result<()> {
+        Ok(())
+    }
+}
+#[derive(Debug)]
+pub struct Gate;
+impl Component for Gate {
+    type Props = GateProps;
+    #[allow(unused_variables)]
+    fn render(&self, props: &Self::Props, _context: &ComponentContext) -> Result<Html> {
+        let open = props.open;
+        let label = &props.label;
+        Ok(
+            Html::Element(
+                HtmlElement::new("div")
+                    .child(
+                        if open {
+                            Html::Element(
+                                HtmlElement::new("span")
+                                    .attr("class", "on")
+                                    .child(Html::text(&format!("{}", label))),
+                            )
+                        } else {
+                            Html::Element(
+                                HtmlElement::new("span")
+                                    .attr("class", "off")
+                                    .child(Html::text("closed")),
+                            )
+                        },
+                    ),
+            ),
+        )
+    }
+}

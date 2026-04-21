@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "ruitl_macros"]
+members = [".", "ruitl_compiler"]
 exclude = ["test-project"]
 
 [package]
@@ -65,18 +65,34 @@ urlencoding = "2.1"
 uuid = { version = "1.0", features = ["v4"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 
-# Proc macros
-ruitl_macros = { path = "ruitl_macros" }
+# Compiler (parser + codegen) — shared with build.rs
+ruitl_compiler = { path = "ruitl_compiler" }
 
 # Development dependencies
 # Build dependencies
 [build-dependencies]
 walkdir = "2.3"
+ruitl_compiler = { path = "ruitl_compiler" }
 
 [dev-dependencies]
 tempfile = "3.0"
 pretty_assertions = "1.0"
 tokio-test = "0.4"
+insta = "1.40"
+prettyplease = "0.2"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "parser"
+harness = false
+
+[[bench]]
+name = "codegen"
+harness = false
+
+[[bench]]
+name = "render"
+harness = false
 
 [features]
 default = ["server", "static", "dev"]

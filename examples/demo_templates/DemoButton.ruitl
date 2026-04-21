@@ -1,0 +1,19 @@
+// Button used by the server_integration demo. Demonstrates compiling an
+// actual .ruitl template and importing the sibling *_ruitl.rs output into a
+// real Rust binary (instead of hand-writing the component).
+
+component DemoButton {
+    props {
+        text: String,
+        variant: String,
+        href: String?,
+    }
+}
+
+ruitl DemoButton(text: String, variant: String, href: Option<String>) {
+    if let Some(href_val) = &href {
+        <a href={href_val.clone()} class={format!("button btn-{}", variant)}>{text.clone()}</a>
+    } else {
+        <button class={format!("button btn-{}", variant)} type="button">{text.clone()}</button>
+    }
+}

@@ -31,7 +31,7 @@ component Button {
 #[test]
 fn test_simple_template_only() {
     let template = r#"
-templ Button() {
+ruitl Button() {
     <button>Click me</button>
 }
 "#;
@@ -55,7 +55,7 @@ templ Button() {
 #[test]
 fn test_template_with_simple_params() {
     let template = r#"
-templ Button(text: String) {
+ruitl Button(text: String) {
     <button>{text}</button>
 }
 "#;
@@ -82,7 +82,7 @@ templ Button(text: String) {
 #[test]
 fn test_template_with_props_type() {
     let template = r#"
-templ Button(props: ButtonProps) {
+ruitl Button(props: ButtonProps) {
     <button>Click</button>
 }
 "#;
@@ -111,7 +111,7 @@ component Button {
     }
 }
 
-templ Button(props: ButtonProps) {
+ruitl Button(props: ButtonProps) {
     <button>{props.text}</button>
 }
 "#;
@@ -133,7 +133,7 @@ templ Button(props: ButtonProps) {
 
 #[test]
 fn test_debug_character_by_character() {
-    let template = "templ Button(props: ButtonProps) {";
+    let template = "ruitl Button(props: ButtonProps) {";
 
     let mut parser = RuitlParser::new(template.to_string());
 
@@ -152,7 +152,7 @@ fn test_debug_character_by_character() {
 #[test]
 fn test_minimal_failing_case() {
     // This should be the minimal case that reproduces the error
-    let template = r#"templ Button(props: ButtonProps) {
+    let template = r#"ruitl Button(props: ButtonProps) {
     <button>test</button>
 }"#;
 

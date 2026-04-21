@@ -1,0 +1,48 @@
+---
+source: tests/codegen_snapshots.rs
+expression: out
+---
+use ruitl::prelude::*;
+use ruitl::html::*;
+#[derive(Debug, Clone)]
+pub struct StatusProps {
+    pub state: String,
+}
+impl ComponentProps for StatusProps {
+    fn validate(&self) -> Result<()> {
+        Ok(())
+    }
+}
+#[derive(Debug)]
+pub struct Status;
+impl Component for Status {
+    type Props = StatusProps;
+    #[allow(unused_variables)]
+    fn render(&self, props: &Self::Props, _context: &ComponentContext) -> Result<Html> {
+        let state = &props.state;
+        Ok(
+            Html::Element(
+                HtmlElement::new("span")
+                    .child(
+                        match state.as_str() {
+                            "ok" => {
+                                Html::Element(
+                                    HtmlElement::new("em").child(Html::text("ok")),
+                                )
+                            }
+                            "err" => {
+                                Html::Element(
+                                    HtmlElement::new("strong").child(Html::text("err")),
+                                )
+                            }
+                            _ => {
+                                Html::Element(
+                                    HtmlElement::new("span").child(Html::text("unknown")),
+                                )
+                            }
+                        },
+                    ),
+            ),
+        )
+    }
+}

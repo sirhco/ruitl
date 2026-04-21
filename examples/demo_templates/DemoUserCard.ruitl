@@ -1,0 +1,17 @@
+// UserCard used by the server_integration demo.
+
+component DemoUserCard {
+    props {
+        name: String,
+        email: String,
+        role: String,
+    }
+}
+
+ruitl DemoUserCard(name: String, email: String, role: String) {
+    <div class="card">
+        <h3>{format!("User: {}", name)}</h3>
+        <p>{format!("Email: {}", email)}</p>
+        <p>{format!("Role: {}", role)}</p>
+    </div>
+}

@@ -1,6 +1,5 @@
 //! Error handling for RUITL
 
-use std::fmt;
 use thiserror::Error;
 
 /// Main error type for RUITL operations
@@ -81,6 +80,18 @@ pub enum RuitlError {
     /// Generic errors
     #[error("Error: {message}")]
     Generic { message: String },
+}
+
+impl From<ruitl_compiler::CompileError> for RuitlError {
+    fn from(err: ruitl_compiler::CompileError) -> Self {
+        use ruitl_compiler::CompileError;
+        match err {
+            CompileError::Parse { message } => Self::Parse { message },
+            CompileError::Codegen { message } => Self::Codegen { message },
+            CompileError::Io(e) => Self::Io(e),
+            CompileError::WalkDir(e) => Self::WalkDir(e),
+        }
+    }
 }
 
 impl RuitlError {

@@ -8,10 +8,32 @@
 
 use ruitl::codegen::CodeGenerator;
 use ruitl::parser::{AttributeValue, RuitlParser, TemplateAst};
-use ruitl::prelude::*;
-use std::collections::HashMap;
 use std::fs;
 use tempfile::TempDir;
+
+/// `proc_macro2::TokenStream::to_string()` emits spaces around every piece of
+/// punctuation (e.g. `props . users . is_empty ( )`), so string-contains
+/// assertions must either include those spaces or strip whitespace. We strip
+/// whitespace so tests can express expected fragments naturally.
+fn strip_ws(s: &str) -> String {
+    s.chars().filter(|c| !c.is_whitespace()).collect()
+}
+
+/// Asserts that `haystack` contains `needle`, ignoring whitespace on both
+/// sides. Intended for use with `proc_macro2::TokenStream::to_string()` output.
+macro_rules! assert_contains_norm {
+    ($haystack:expr, $needle:expr) => {{
+        let h = strip_ws(&$haystack);
+        let n = strip_ws(&$needle);
+        assert!(
+            h.contains(&n),
+            "expected generated code to contain `{}` (normalized `{}`), got:\n{}",
+            $needle,
+            n,
+            $haystack
+        );
+    }};
+}
 
 #[test]
 fn test_simple_component_compilation() {
@@ -48,9 +70,9 @@ ruitl Button(props: ButtonProps) {
     let generated_code = generator.generate().expect("Failed to generate code");
 
     let code_str = generated_code.to_string();
-    assert!(code_str.contains("struct ButtonProps"));
-    assert!(code_str.contains("struct Button"));
-    assert!(code_str.contains("impl Component for Button"));
+    assert_contains_norm!(code_str, "struct ButtonProps");
+    assert_contains_norm!(code_str, "struct Button");
+    assert_contains_norm!(code_str, "impl Component for Button");
 }
 
 #[test]
@@ -92,9 +114,9 @@ ruitl UserList(props: UserListProps) {
     let generated_code = generator.generate().expect("Failed to generate code");
 
     let code_str = generated_code.to_string();
-    assert!(code_str.contains("if props.users.is_empty()"));
-    assert!(code_str.contains("into_iter"));
-    assert!(code_str.contains("map"));
+    assert_contains_norm!(code_str, "if props.users.is_empty()");
+    assert_contains_norm!(code_str, "into_iter");
+    assert_contains_norm!(code_str, "map");
 }
 
 #[test]
@@ -144,10 +166,10 @@ ruitl Button(props: ButtonProps) {
     let generated_code = generator.generate().expect("Failed to generate code");
 
     let code_str = generated_code.to_string();
-    assert!(code_str.contains("struct CardProps"));
-    assert!(code_str.contains("struct ButtonProps"));
-    assert!(code_str.contains("Button"));
-    assert!(code_str.contains("Card"));
+    assert_contains_norm!(code_str, "struct CardProps");
+    assert_contains_norm!(code_str, "struct ButtonProps");
+    assert_contains_norm!(code_str, "Button");
+    assert_contains_norm!(code_str, "Card");
 }
 
 #[test]
@@ -186,10 +208,10 @@ ruitl StatusBadge(props: StatusBadgeProps) {
     let generated_code = generator.generate().expect("Failed to generate code");
 
     let code_str = generated_code.to_string();
-    assert!(code_str.contains("match props.status"));
-    assert!(code_str.contains("\"active\" =>"));
-    assert!(code_str.contains("\"inactive\" =>"));
-    assert!(code_str.contains("_ =>"));
+    assert_contains_norm!(code_str, "match props.status");
+    assert_contains_norm!(code_str, "\"active\" =>");
+    assert_contains_norm!(code_str, "\"inactive\" =>");
+    assert_contains_norm!(code_str, "_ =>");
 }
 
 #[test]
@@ -235,8 +257,8 @@ ruitl DataTable(props: DataTableProps) {
     let generated_code = generator.generate().expect("Failed to generate code");
 
     let code_str = generated_code.to_string();
-    assert!(code_str.contains("use std::collections::{HashMap, Vec}"));
-    assert!(code_str.contains("use serde::{Serialize, Deserialize}"));
+    assert_contains_norm!(code_str, "use std::collections::{HashMap, Vec}");
+    assert_contains_norm!(code_str, "use serde::{Serialize, Deserialize}");
 }
 
 #[test]
@@ -288,7 +310,7 @@ ruitl Input(props: InputProps) {
     let generated_code = generator.generate().expect("Failed to generate code");
 
     let code_str = generated_code.to_string();
-    assert!(code_str.contains("attr_if"));
+    assert_contains_norm!(code_str, "attr_if");
 }
 
 #[test]
@@ -323,7 +345,7 @@ ruitl Icon(props: IconProps) {
     let generated_code = generator.generate().expect("Failed to generate code");
 
     let code_str = generated_code.to_string();
-    assert!(code_str.contains("self_closing"));
+    assert_contains_norm!(code_str, "self_closing");
 }
 
 #[test]
@@ -381,8 +403,8 @@ ruitl Page(props: PageProps) {
     let generated_code = generator.generate().expect("Failed to generate code");
 
     let code_str = generated_code.to_string();
-    assert!(code_str.contains("LayoutProps"));
-    assert!(code_str.contains("PageProps"));
+    assert_contains_norm!(code_str, "LayoutProps");
+    assert_contains_norm!(code_str, "PageProps");
 }
 
 #[test]
@@ -442,10 +464,12 @@ ruitl Calculator(props: CalculatorProps) {
     let mut generator = CodeGenerator::new(ast);
     let generated_code = generator.generate().expect("Failed to generate code");
 
-    let code_str = generated_code.to_string();
-    assert!(code_str.contains("props.a"));
-    assert!(code_str.contains("props.b"));
-    assert!(code_str.contains("props.operation"));
+    // proc_macro2 formats punctuation with spaces (e.g. `props . a`). Strip
+    // all whitespace before asserting token presence.
+    let code_str = generated_code.to_string().replace(char::is_whitespace, "");
+    assert_contains_norm!(code_str, "props.a");
+    assert_contains_norm!(code_str, "props.b");
+    assert_contains_norm!(code_str, "props.operation");
 }
 
 #[test]
@@ -575,8 +599,9 @@ ruitl ValidatedForm(props: ValidatedFormProps) {
     assert!(!email_prop.optional);
 
     let name_prop = component.props.iter().find(|p| p.name == "name").unwrap();
-    assert_eq!(name_prop.prop_type, "String?");
-    assert!(!name_prop.optional); // ? in type, not optional flag
+    // `name: String?` sets the optional flag; the `?` is not part of prop_type.
+    assert_eq!(name_prop.prop_type, "String");
+    assert!(name_prop.optional);
 
     let terms_prop = component
         .props
@@ -584,15 +609,17 @@ ruitl ValidatedForm(props: ValidatedFormProps) {
         .find(|p| p.name == "terms_accepted")
         .unwrap();
     assert_eq!(terms_prop.prop_type, "bool");
-    assert!(terms_prop.optional);
+    // A default value does not make the prop Option-wrapped (`optional` is
+    // flagged only by `?`). The default is a codegen concern.
+    assert!(!terms_prop.optional);
     assert_eq!(terms_prop.default_value, Some("false".to_string()));
 
     let mut generator = CodeGenerator::new(ast);
     let generated_code = generator.generate().expect("Failed to generate code");
 
     let code_str = generated_code.to_string();
-    assert!(code_str.contains("impl ruitl::component::ComponentProps"));
-    assert!(code_str.contains("fn validate"));
+    assert_contains_norm!(code_str, "impl ComponentProps");
+    assert_contains_norm!(code_str, "fn validate");
 }
 
 #[test]
@@ -619,7 +646,7 @@ ruitl Fragment(props: FragmentProps) {
     let generated_code = generator.generate().expect("Failed to generate code");
 
     let code_str = generated_code.to_string();
-    assert!(code_str.contains("Html::fragment"));
+    assert_contains_norm!(code_str, "Html::fragment");
 }
 
 #[test]
@@ -647,6 +674,6 @@ ruitl RawContent(props: RawContentProps) {
     let generated_code = generator.generate().expect("Failed to generate code");
 
     let code_str = generated_code.to_string();
-    assert!(code_str.contains("props.safe_content"));
-    assert!(code_str.contains("props.html_content"));
+    assert_contains_norm!(code_str, "props.safe_content");
+    assert_contains_norm!(code_str, "props.html_content");
 }

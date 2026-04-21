@@ -13,32 +13,44 @@
 //!
 //! ## Quick Start
 //!
-//! ```rust
-//! use ruitl::prelude::*;
+//! Write a `.ruitl` template in `templates/Hello.ruitl`:
 //!
-//! #[component]
-//! fn hello_world(name: &str) -> Html {
-//!     html! {
-//!         <div class="greeting">
-//!             <h1>Hello, {name}!</h1>
-//!             <p>Welcome to RUITL</p>
-//!         </div>
-//!     }
+//! ```text
+//! component Hello {
+//!     props { name: String }
 //! }
 //!
-//! fn main() {
-//!     let html = hello_world("World");
-//!     println!("{}", html.render());
+//! ruitl Hello(name: String) {
+//!     <div class="greeting">
+//!         <h1>{format!("Hello, {}!", name)}</h1>
+//!     </div>
 //! }
 //! ```
+//!
+//! `cargo build` invokes `build.rs`, which compiles it to a sibling
+//! `templates/Hello_ruitl.rs` (checked in, templ-style). Use it from Rust:
+//!
+//! ```ignore
+//! use ruitl::prelude::*;
+//!
+//! let component = Hello;
+//! let props = HelloProps { name: "World".to_string() };
+//! let ctx = ComponentContext::new();
+//! let html = component.render(&props, &ctx).unwrap();
+//! println!("{}", html.render());
+//! ```
 
+pub mod build;
 pub mod cli;
-pub mod codegen;
 pub mod component;
 pub mod config;
 pub mod error;
 pub mod html;
-pub mod parser;
+
+/// Parser AST and tokenizer — re-exported from the shared `ruitl_compiler` crate.
+pub use ruitl_compiler::parser;
+/// Template → Rust code generator — re-exported from the shared `ruitl_compiler` crate.
+pub use ruitl_compiler::codegen;
 
 // Re-export commonly used items
 pub use component::{Component, ComponentContext, ComponentProps, EmptyProps};

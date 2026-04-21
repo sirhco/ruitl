@@ -1,0 +1,23 @@
+component Badge {
+    props {
+        text: String,
+    }
+}
+
+ruitl Badge(text: String) {
+    <span class="badge">{text}</span>
+}
+
+component Banner {
+    props {
+        title: String,
+        label: String,
+    }
+}
+
+ruitl Banner(title: String, label: String) {
+    <div class="banner">
+        <h1>{title}</h1>
+        @Badge(text: label.clone())
+    </div>
+}

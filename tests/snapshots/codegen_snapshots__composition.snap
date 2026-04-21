@@ -1,0 +1,68 @@
+---
+source: tests/codegen_snapshots.rs
+expression: out
+---
+use ruitl::prelude::*;
+use ruitl::html::*;
+#[derive(Debug, Clone)]
+pub struct BadgeProps {
+    pub text: String,
+}
+impl ComponentProps for BadgeProps {
+    fn validate(&self) -> Result<()> {
+        Ok(())
+    }
+}
+#[derive(Debug)]
+pub struct Badge;
+impl Component for Badge {
+    type Props = BadgeProps;
+    #[allow(unused_variables)]
+    fn render(&self, props: &Self::Props, _context: &ComponentContext) -> Result<Html> {
+        let text = &props.text;
+        Ok(
+            Html::Element(
+                HtmlElement::new("span")
+                    .attr("class", "badge")
+                    .child(Html::text(&format!("{}", text))),
+            ),
+        )
+    }
+}
+#[derive(Debug, Clone)]
+pub struct BannerProps {
+    pub title: String,
+    pub label: String,
+}
+impl ComponentProps for BannerProps {
+    fn validate(&self) -> Result<()> {
+        Ok(())
+    }
+}
+#[derive(Debug)]
+pub struct Banner;
+impl Component for Banner {
+    type Props = BannerProps;
+    #[allow(unused_variables)]
+    fn render(&self, props: &Self::Props, context: &ComponentContext) -> Result<Html> {
+        let title = &props.title;
+        let label = &props.label;
+        Ok(
+            Html::Element(
+                HtmlElement::new("div")
+                    .attr("class", "banner")
+                    .child(
+                        Html::Element(
+                            HtmlElement::new("h1")
+                                .child(Html::text(&format!("{}", title))),
+                        ),
+                    )
+                    .child({
+                        let component = Badge;
+                        let props = BadgeProps { text: label.clone() };
+                        component.render(&props, context)?
+                    }),
+            ),
+        )
+    }
+}

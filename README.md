@@ -1,22 +1,41 @@
-# RUITL - Rust UI Template Language v0.1.0
+# RUITL - Rust UI Template Language v0.2.0
 
 [![Crates.io](https://img.shields.io/crates/v/ruitl.svg)](https://crates.io/crates/ruitl)
 [![Documentation](https://docs.rs/ruitl/badge.svg)](https://docs.rs/ruitl)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE)
 
-> **⚠️ Status: Experimental (v0.1.0)** - This project is experimental and not production ready. Template compilation, CLI, and component generation are working but may have breaking changes in future versions.
+> **⚠️ Status: Pre-release (v0.2.0)** — Core feature set stable. Breaking changes possible before v1.0 while SSG and ergonomics settle.
 
-A modern template compiler for building type-safe HTML components in Rust. RUITL compiles `.ruitl` template files into efficient Rust code at build time, providing the safety and performance of Rust with a natural HTML-like syntax.
+A template compiler for building type-safe HTML components in Rust, modelled on Go's [templ](https://templ.guide). RUITL compiles `.ruitl` template files into sibling `*_ruitl.rs` files (committed to source control, reviewable in diffs) and links them into your binary at build time.
 
 ## ✨ Key Features
 
-- 🔄 **Template Compilation**: `.ruitl` files compiled to Rust code at build time
+- 🔄 **Template Compilation**: `.ruitl` → sibling `*_ruitl.rs` (templ-style `_templ.go` convention)
 - 🦀 **Type Safety**: Generated components with full Rust type checking
-- ⚡ **Zero Runtime**: Templates compiled away - pure Rust performance
-- 🔧 **Cargo Integration**: Seamless build process with standard Rust tooling
-- 📦 **Component Props**: Type-safe props with validation and defaults
-- 🎯 **HTML Generation**: Clean, efficient HTML output
+- ⚡ **Zero Runtime Parsing**: Templates compiled away, pure Rust at render
+- 🔧 **Cargo Integration**: `build.rs` and `ruitl` CLI share one compiler
+- 📦 **Component Props**: Type-safe props with validation, defaults, generics
+- ♻️ **Incremental Builds**: Hash-based skip when `.ruitl` source is unchanged
+- 👀 **Watch Mode**: `ruitl compile --watch` auto-recompiles on save
+- 🎯 **HTML Generation**: Clean, deterministic, attribute-order-stable output
 - 🚫 **No JavaScript**: Pure Rust, server-side rendering focus
+
+## Status
+
+| Feature | State | Notes |
+|---|---|---|
+| Template parser | Stable | components, props, `if`/`for`/`match`, composition `@X(...)`, imports |
+| Generics | Stable (type params) | `<T, U: Bound>`. Lifetime params rejected with explicit error |
+| Codegen | Stable | Deterministic attribute order; prop bindings emitted only when referenced |
+| Incremental build | Stable | `// ruitl-hash:` header skip; `CODEGEN_VERSION` cache-buster |
+| Watch mode | Stable (dev feature) | `hotwatch`-backed; 150ms debounce |
+| Scaffolder | Stable | `ruitl scaffold` emits sibling-file projects with `bin/ruitl.rs` wrapper |
+| Snapshot tests | Stable | `insta` + `prettyplease`; fixtures in `tests/fixtures/snapshots/` |
+| Minification | Optional | `--features minify` post-render via `minify-html` (planned) |
+| Static site generation | Planned | `ruitl build` subcommand with `[[routes]]` config (planned) |
+| Parser error context | Basic | line/column only; rustc-style framed output planned |
+
+See `tests/fixtures/snapshots/*.snap` for canonical codegen output.
 
 ## 🚀 Quick Start
 
@@ -183,15 +202,18 @@ my-ruitl-project/
 │   │   └── styles.css     # Complete CSS framework
 │   └── js/
 │       └── main.js        # Interactive JavaScript
-├── generated/             # Generated Rust code (created after compile)
-│   ├── Button.rs          # Generated from Button.ruitl
-│   ├── Card.rs            # Generated from Card.ruitl
-│   ├── Layout.rs          # Generated from Layout.ruitl
-│   └── mod.rs             # Module exports
+├── templates/             # .ruitl sources AND their generated siblings (committed)
+│   ├── Button.ruitl
+│   ├── Button_ruitl.rs    # Generated sibling (templ-style, checked in)
+│   ├── Card.ruitl
+│   ├── Card_ruitl.rs
+│   ├── Layout.ruitl
+│   ├── Layout_ruitl.rs
+│   └── mod.rs             # Auto-generated re-exports
 └── examples/              # Additional examples (if --with-examples)
 ```
 
-**Note**: The `generated/` directory is created and populated when you run `cargo run --bin ruitl -- compile`. It contains the Rust code generated from your `.ruitl` template files.
+**Note**: Generated `*_ruitl.rs` files live next to their `.ruitl` sources (Go templ's `_templ.go` convention). They are reviewable and checked in. Running `cargo run --bin ruitl -- compile` or `cargo build` regenerates them.
 
 **Self-Contained Binary**: Each scaffolded project includes its own RUITL CLI binary in the `bin/` directory, so you don't need to install RUITL globally. All template compilation is done using `cargo run --bin ruitl -- <command>`.
 
@@ -340,14 +362,14 @@ ruitl scaffold \
 
 #### `compile` - Compile Templates
 
-Compile `.ruitl` template files to Rust code:
+Compile `.ruitl` template files to Rust code. Each `Foo.ruitl` produces a sibling `Foo_ruitl.rs` in the same directory (templ-style, checked in).
 
 ```bash
-# Basic compilation
+# Basic compilation (reads templates/, writes sibling *_ruitl.rs files)
 ruitl compile
 
-# Specify directories
-ruitl compile --src-dir templates --out-dir generated
+# Specify source directory
+ruitl compile --src-dir my-templates
 
 # Watch mode for development
 ruitl compile --watch
@@ -355,14 +377,12 @@ ruitl compile --watch
 # Full options
 ruitl compile \
   --src-dir ./templates \
-  --out-dir ./generated \
   --watch \
   --verbose
 ```
 
 **Options:**
 - `--src-dir <PATH>` - Template source directory (default: `templates`)
-- `--out-dir <PATH>` - Generated code output directory (default: `generated`)
 - `--watch` - Watch for file changes and recompile automatically
 - `--verbose` - Show detailed compilation output
 
@@ -396,7 +416,6 @@ authors = ["Your Name <your.email@example.com>"]
 
 [build]
 template_dir = "templates"
-out_dir = "generated"
 src_dir = "src"
 
 [server]
@@ -464,8 +483,8 @@ ruitl scaffold --name ui-components --with-examples
 # Create a full web application
 ruitl scaffold --name my-webapp --with-server --with-examples --target ./projects
 
-# Compile templates with custom paths
-ruitl compile --src-dir ./my-templates --out-dir ./src/generated
+# Compile templates with custom source path
+ruitl compile --src-dir ./my-templates
 
 # Development workflow with file watching
 ruitl compile --watch --verbose

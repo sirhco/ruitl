@@ -1,0 +1,10 @@
+component Greeting {
+    props {
+        name: String,
+        enthusiasm: u32,
+    }
+}
+
+ruitl Greeting(name: String, enthusiasm: u32) {
+    <p>{format!("Hello, {}!{}", name, "!".repeat(enthusiasm as usize))}</p>
+}

@@ -1,0 +1,38 @@
+---
+source: tests/codegen_snapshots.rs
+expression: out
+---
+use ruitl::prelude::*;
+use ruitl::html::*;
+#[derive(Debug, Clone)]
+pub struct BoxedProps<T: Clone + Debug + Send + Sync + 'static> {
+    pub value: T,
+}
+impl<T: Clone + Debug + Send + Sync + 'static> ComponentProps for BoxedProps<T> {
+    fn validate(&self) -> Result<()> {
+        Ok(())
+    }
+}
+#[derive(Debug)]
+pub struct Boxed<T: Clone + Debug + Send + Sync + 'static>(
+    pub ::core::marker::PhantomData<fn() -> (T,)>,
+);
+impl<T: Clone + Debug + Send + Sync + 'static> ::core::default::Default for Boxed<T> {
+    fn default() -> Self {
+        Self(::core::marker::PhantomData)
+    }
+}
+impl<T: Clone + Debug + Send + Sync + 'static> Component for Boxed<T> {
+    type Props = BoxedProps<T>;
+    #[allow(unused_variables)]
+    fn render(&self, props: &Self::Props, _context: &ComponentContext) -> Result<Html> {
+        let value = &props.value;
+        Ok(
+            Html::Element(
+                HtmlElement::new("div")
+                    .attr("class", "boxed")
+                    .child(Html::text(&format!("{}", format!("{:?}", value)))),
+            ),
+        )
+    }
+}

@@ -1,0 +1,39 @@
+---
+source: tests/codegen_snapshots.rs
+expression: out
+---
+use ruitl::prelude::*;
+use ruitl::html::*;
+#[derive(Debug, Clone)]
+pub struct GreetingProps {
+    pub name: String,
+    pub enthusiasm: u32,
+}
+impl ComponentProps for GreetingProps {
+    fn validate(&self) -> Result<()> {
+        Ok(())
+    }
+}
+#[derive(Debug)]
+pub struct Greeting;
+impl Component for Greeting {
+    type Props = GreetingProps;
+    #[allow(unused_variables)]
+    fn render(&self, props: &Self::Props, _context: &ComponentContext) -> Result<Html> {
+        let name = &props.name;
+        let enthusiasm = props.enthusiasm;
+        Ok(
+            Html::Element(
+                HtmlElement::new("p")
+                    .child(
+                        Html::text(
+                            &format!(
+                                "{}", format!("Hello, {}!{}", name, "!".repeat(enthusiasm as
+                                usize))
+                            ),
+                        ),
+                    ),
+            ),
+        )
+    }
+}

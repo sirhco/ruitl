@@ -7,9 +7,7 @@
 //! - Nested conditionals and loops
 //! - String interpolation with expressions
 
-use ruitl::component::{Component, ComponentContext};
-use ruitl::html::Html;
-use ruitl::prelude::*;
+use ruitl::component::ComponentContext;
 
 fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("🚀 RUITL Advanced Features Demo");
@@ -43,20 +41,20 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 }
 
 fn demo_simple_conditional(
-    context: &ComponentContext,
+    _context: &ComponentContext,
 ) -> std::result::Result<(), Box<dyn std::error::Error>> {
     // Note: In a real implementation, these would be the generated components
     // For this demo, we'll simulate the component behavior
 
     println!("🔹 SimpleIf with show_message = true:");
-    let props_true = serde_json::json!({
+    let _props_true = serde_json::json!({
         "show_message": true
     });
     println!("   Expected: <div><p>Hello World!</p></div>");
     println!("   Component would render with message visible\n");
 
     println!("🔹 SimpleIf with show_message = false:");
-    let props_false = serde_json::json!({
+    let _props_false = serde_json::json!({
         "show_message": false
     });
     println!("   Expected: <div><p>No message to show</p></div>");
@@ -66,7 +64,7 @@ fn demo_simple_conditional(
 }
 
 fn demo_advanced_features(
-    context: &ComponentContext,
+    _context: &ComponentContext,
 ) -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("🔹 AdvancedFeatures for regular user with items:");
 
@@ -126,11 +124,11 @@ fn demo_advanced_features(
 }
 
 fn demo_complex_scenarios(
-    context: &ComponentContext,
+    _context: &ComponentContext,
 ) -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("🔹 Complex nested conditionals and expressions:");
 
-    let complex_props = serde_json::json!({
+    let _complex_props = serde_json::json!({
         "title": "Complex Dashboard",
         "items": ["Important Task", "Regular Task", "Low Priority"],
         "show_header": true,

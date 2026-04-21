@@ -1,0 +1,16 @@
+component Gate {
+    props {
+        open: bool,
+        label: String,
+    }
+}
+
+ruitl Gate(open: bool, label: String) {
+    <div>
+        if open {
+            <span class="on">{label}</span>
+        } else {
+            <span class="off">closed</span>
+        }
+    </div>
+}
