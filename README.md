@@ -33,9 +33,13 @@ A template compiler for building type-safe HTML components in Rust, modelled on 
 | Snapshot tests | Stable | `insta` + `prettyplease`; fixtures in `tests/fixtures/snapshots/` |
 | Minification | Optional | `--features minify` post-render via `minify-html` (planned) |
 | Static site generation | Planned | `ruitl build` subcommand with `[[routes]]` config (planned) |
-| Parser error context | Basic | line/column only; rustc-style framed output planned |
+| Parser error context | Rustc-style frame | Line/col + caret + source context |
+| Editor support | Planned | Tree-sitter grammar (v0.3) then LSP; see [Editor support](#editor-support) |
 
 See `tests/fixtures/snapshots/*.snap` for canonical codegen output.
+
+**Browse the gallery:** [`examples/README.md`](examples/README.md) indexes every
+`.ruitl` fixture and example binary by learning goal.
 
 ## 🚀 Quick Start
 
@@ -786,6 +790,16 @@ Configure template compilation in your `Cargo.toml`:
 template_dir = "templates"
 generated_dir = "generated"
 ```
+
+## 🖋️ Editor support
+
+`.ruitl` files currently open as plain text in every editor — no highlighting, no diagnostics, no completion. Planned roadmap:
+
+- **v0.3 — tree-sitter grammar.** Ships syntax highlighting in Neovim, Helix, Zed, and any other tree-sitter-aware editor. Published to `nvim-treesitter` and Zed's extension registry.
+- **v0.4 — basic LSP** (`ruitl-lsp` crate, `tower-lsp`-based): forwards parser/codegen errors as `textDocument/publishDiagnostics`; formats on save via the existing rustfmt pipeline.
+- **v0.5+ — completion**: component names in `@X(...)`, prop names in `{x.field}`, HTML tags/attrs. Rust-aware expression completion (inside `{...}`) depends on a rust-analyzer bridge and is explicitly out of scope for now.
+
+Until then, the pragmatic workflow is: enable watch mode (`ruitl compile --watch`) in one terminal, edit `.ruitl` files in your editor of choice, and let the parser+codegen errors from the watcher guide you.
 
 ## 🤔 FAQ
 

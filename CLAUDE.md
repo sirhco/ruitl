@@ -90,4 +90,4 @@ Generated files use short type names relying on `use ruitl::prelude::*; use ruit
 
 ## Working on templates
 
-When modifying `.ruitl` files in `templates/` or `examples/templates/`, the build script recompiles automatically on next `cargo build` and updates the sibling `*_ruitl.rs`. If iterating on parser/codegen, regenerate explicitly with `cargo run -- compile` and inspect diffs via `git diff templates/`. Committed `*_ruitl.rs` files serve as both the build product and a reference of current codegen behavior — review them like normal code.
+When modifying `.ruitl` files in `templates/`, `src/templates/`, or `examples/demo_templates/`, the build script recompiles automatically on next `cargo build` and updates the sibling `*_ruitl.rs`. `examples/syntax_showcase/` is intentionally **not** compiled — it holds reference material showing every syntax feature and depends on notional user-defined types. If iterating on parser/codegen, regenerate explicitly with `cargo run -- compile` and inspect diffs via `git diff templates/`. Committed `*_ruitl.rs` files serve as both the build product and a reference of current codegen behavior — review them like normal code.

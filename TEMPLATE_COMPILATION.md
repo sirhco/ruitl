@@ -493,8 +493,10 @@ If migrating from RUITL's runtime library approach:
 
 See the `examples/` directory for complete working examples:
 
-- `examples/templates/Button.ruitl` - Basic button component
-- `examples/templates/UserCard.ruitl` - Complex component with composition
+- `examples/syntax_showcase/Button.ruitl` - Syntax reference for a button (not compiled)
+- `examples/syntax_showcase/UserCard.ruitl` - Full-feature syntax reference (not compiled)
+- `examples/demo_templates/DemoButton.ruitl` - Compilable button used by `server_integration`
+- `examples/demo_templates/DemoUserCard.ruitl` - Compilable user card used by `server_integration`
 - `examples/template_compiler_demo.rs` - Full compilation workflow demo
 
 ## Resources

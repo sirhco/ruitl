@@ -17,9 +17,10 @@ fn main() {
         manifest_root.join("src").join("templates"),
         // `examples/demo_templates/` hosts compilable templates used by
         // `examples/server_integration.rs` to demonstrate real sibling-file
-        // integration. `examples/templates/` holds the syntax showcases and
-        // is intentionally NOT compiled — some showcases reference external
-        // types (e.g. a `User` struct) that belong to a notional user project.
+        // integration. `examples/syntax_showcase/` (deliberately NOT in this
+        // list) holds hand-written reference templates that exercise every
+        // feature but depend on notional user-defined types — read-only
+        // material for users learning the syntax.
         manifest_root.join("examples").join("demo_templates"),
     ];
 

@@ -1,5 +1,12 @@
-// RUITL Button Component
-// This demonstrates the RUITL template syntax with props, conditionals, and expressions
+// Syntax showcase — every feature in one Button.
+//
+// NOT compiled by build.rs. This is reference material, not drop-in code.
+// It exercises every RUITL construct (props, defaults, optional props,
+// attribute expressions, conditional rendering, if-let) in a single
+// component so you can scan the whole surface area quickly.
+//
+// For a compilable Button, see `examples/demo_templates/DemoButton.ruitl`
+// (used by `examples/server_integration.rs`).
 
 import "std::collections" { HashMap }
 

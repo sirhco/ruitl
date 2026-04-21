@@ -1,5 +1,13 @@
-// RUITL UserCard Component
-// This demonstrates complex RUITL template syntax with conditionals, loops, and component composition
+// Syntax showcase — every feature in one UserCard.
+//
+// NOT compiled by build.rs — this references a `User` struct (with fields
+// like `avatar_url`, `skills`, `follower_count`, `relationship`) that a
+// real project would define. Read this as a syntax cheat sheet covering
+// @Component composition, nested conditionals, loops, match expressions,
+// optional props via `if let Some(...)`, and attribute interpolation.
+//
+// For a compilable UserCard, see
+// `examples/demo_templates/DemoUserCard.ruitl`.
 
 import "std::collections" { HashMap, Vec }
 
