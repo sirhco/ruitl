@@ -129,18 +129,32 @@ Pair with a `languages` contribution in `package.json`:
 
 ### Zed
 
-Zed auto-discovers LSP servers via its extension registry. A published
-extension ships this config; until then add a workspace-local
-`lsp_settings.json`:
+Zed LSPs must be wired through a real extension — bare `settings.json`
+entries don't work. This repo ships a scaffold extension at
+[`zed-extension-ruitl/`](../zed-extension-ruitl/) that registers the
+`RUITL` language, points at the tree-sitter grammar, and launches
+`ruitl-lsp`.
 
-```json
-{
-  "ruitl-lsp": {
-    "binary": { "path": "ruitl-lsp" },
-    "enable_language_server": true
-  }
-}
-```
+Install it as a dev extension:
+
+1. Build the LSP binary and put it on PATH:
+   ```bash
+   cargo install --path ruitl_lsp
+   which ruitl-lsp   # verify (~/.cargo/bin/ruitl-lsp)
+   ```
+2. In Zed, open the command palette and run
+   `zed: install dev extension`. Select the `zed-extension-ruitl/`
+   directory. Zed compiles it to WASM and activates it.
+3. Open a `.ruitl` file. Highlighting + diagnostics + hover + go-to-def
+   should appear.
+
+Full instructions and troubleshooting in the extension's
+[README](../zed-extension-ruitl/README.md).
+
+**Note:** A stray `lsp.ruitl-lsp` entry in `settings.json` alone will NOT
+work — Zed only routes LSPs to files whose language is registered via an
+extension. The grammar + language config must come from the extension
+too, not from a raw settings block.
 
 ## Debugging
 

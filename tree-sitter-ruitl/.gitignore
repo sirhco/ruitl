@@ -1,5 +1,8 @@
 node_modules/
-src/parser.c
-src/tree_sitter/
 build/
 *.log
+
+# NOTE: src/parser.c and src/tree_sitter/ are intentionally NOT gitignored.
+# Editors (Zed, Neovim) consume the grammar by cloning this repo and
+# expect the generated parser to be present. Regenerate after any
+# grammar.js change via `npx tree-sitter generate`.
