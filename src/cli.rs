@@ -44,6 +44,18 @@ pub enum Commands {
         #[arg(short, long)]
         watch: bool,
     },
+    /// Format one or more `.ruitl` files in place (or a whole directory).
+    /// With `--check`, exits with a non-zero status when any file is not
+    /// already formatted (useful in CI).
+    Fmt {
+        /// Files or directories to format. Directories are walked
+        /// recursively. Defaults to `templates/` when no paths are given.
+        #[arg(value_name = "PATH")]
+        paths: Vec<PathBuf>,
+        /// Don't write; exit 1 if any file would change.
+        #[arg(long)]
+        check: bool,
+    },
     /// Validate the `[[routes]]` entries in `ruitl.toml` (static-site config).
     /// Actual rendering happens from the user's own binary by calling
     /// `ruitl::build::render_site` — see the crate docs for the dispatcher
@@ -113,6 +125,7 @@ impl CliApp {
             Commands::Compile { src_dir, watch } => {
                 self.compile_templates(&src_dir, watch).await
             }
+            Commands::Fmt { paths, check } => self.fmt_paths(&paths, check),
             Commands::ValidateRoutes { config } => self.validate_routes(&config),
             Commands::Scaffold {
                 name,
@@ -170,6 +183,102 @@ impl CliApp {
         }
 
         Ok(())
+    }
+
+    /// Format `.ruitl` files in place (or in check mode, report without
+    /// writing). Walks any directory arguments recursively.
+    fn fmt_paths(&self, paths: &[PathBuf], check: bool) -> Result<()> {
+        let targets: Vec<PathBuf> = if paths.is_empty() {
+            vec![PathBuf::from("templates")]
+        } else {
+            paths.to_vec()
+        };
+
+        let mut files: Vec<PathBuf> = Vec::new();
+        for target in &targets {
+            if target.is_file()
+                && target.extension().map(|e| e == "ruitl").unwrap_or(false)
+            {
+                files.push(target.clone());
+            } else if target.is_dir() {
+                for entry in walkdir::WalkDir::new(target)
+                    .into_iter()
+                    .filter_map(|e| e.ok())
+                {
+                    let p = entry.path();
+                    if p.is_file()
+                        && p.extension().map(|e| e == "ruitl").unwrap_or(false)
+                    {
+                        files.push(p.to_path_buf());
+                    }
+                }
+            }
+        }
+
+        let mut changed: Vec<PathBuf> = Vec::new();
+        let mut errors: Vec<(PathBuf, String)> = Vec::new();
+
+        for file in &files {
+            let src = match std::fs::read_to_string(file) {
+                Ok(s) => s,
+                Err(e) => {
+                    errors.push((file.clone(), format!("read: {}", e)));
+                    continue;
+                }
+            };
+            let formatted = match ruitl_compiler::format::format_source(&src) {
+                Ok(s) => s,
+                Err(e) => {
+                    errors.push((file.clone(), format!("parse: {}", e)));
+                    continue;
+                }
+            };
+            if formatted != src {
+                changed.push(file.clone());
+                if !check {
+                    if let Err(e) = std::fs::write(file, &formatted) {
+                        errors.push((file.clone(), format!("write: {}", e)));
+                    } else if self.verbose {
+                        self.log_info(&format!("Formatted {}", file.display()));
+                    }
+                }
+            }
+        }
+
+        if !errors.is_empty() {
+            for (p, e) in &errors {
+                self.log_warning(&format!("{}: {}", p.display(), e));
+            }
+            return Err(RuitlError::generic(format!(
+                "fmt: {} file(s) failed",
+                errors.len()
+            )));
+        }
+
+        if check {
+            if changed.is_empty() {
+                self.log_success(&format!(
+                    "✓ {} file(s) already formatted",
+                    files.len()
+                ));
+                Ok(())
+            } else {
+                for p in &changed {
+                    println!("{}", p.display());
+                }
+                Err(RuitlError::generic(format!(
+                    "{} file(s) would change",
+                    changed.len()
+                )))
+            }
+        } else {
+            self.log_success(&format!(
+                "✓ formatted {} file(s) ({} changed)",
+                files.len(),
+                changed.len()
+            ));
+            Ok(())
+        }
     }
 
     /// Validate the `[[routes]]` section of a `ruitl.toml` configuration.

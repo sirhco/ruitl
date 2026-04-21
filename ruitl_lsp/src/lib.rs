@@ -19,7 +19,7 @@
 //!   - Format on save (needs AST → .ruitl pretty-printer)
 
 use dashmap::DashMap;
-use ruitl_compiler::{parse_str, CodeGenerator, CompileError};
+use ruitl_compiler::{format, parse_str, CodeGenerator, CompileError};
 use std::sync::Arc;
 use tower_lsp::jsonrpc::Result as RpcResult;
 use tower_lsp::lsp_types::*;
@@ -50,6 +50,69 @@ impl Backend {
             .publish_diagnostics(uri, diagnostics, None)
             .await;
     }
+}
+
+/// Common HTML5 element tag names. Intentionally a flat allowlist — no
+/// attempt to distinguish void / self-closing because `.ruitl`'s codegen
+/// handles that based on the element-building API.
+const HTML_TAGS: &[&str] = &[
+    "a", "abbr", "address", "area", "article", "aside", "audio", "b",
+    "base", "bdi", "bdo", "blockquote", "body", "br", "button", "canvas",
+    "caption", "cite", "code", "col", "colgroup", "data", "datalist", "dd",
+    "del", "details", "dfn", "dialog", "div", "dl", "dt", "em", "embed",
+    "fieldset", "figcaption", "figure", "footer", "form", "h1", "h2", "h3",
+    "h4", "h5", "h6", "head", "header", "hr", "html", "i", "iframe", "img",
+    "input", "ins", "kbd", "label", "legend", "li", "link", "main", "map",
+    "mark", "meta", "meter", "nav", "noscript", "ol", "optgroup", "option",
+    "output", "p", "picture", "pre", "progress", "q", "rp", "rt", "ruby",
+    "s", "samp", "script", "section", "select", "small", "source", "span",
+    "strong", "style", "sub", "summary", "sup", "svg", "table", "tbody",
+    "td", "template", "textarea", "tfoot", "th", "thead", "time", "title",
+    "tr", "track", "u", "ul", "var", "video", "wbr",
+];
+
+fn html_tag_completion_items() -> Vec<CompletionItem> {
+    HTML_TAGS
+        .iter()
+        .map(|tag| CompletionItem {
+            label: tag.to_string(),
+            kind: Some(CompletionItemKind::KEYWORD),
+            detail: Some("HTML element".to_string()),
+            ..Default::default()
+        })
+        .collect()
+}
+
+/// Extract component names from the given document. Falls back to an
+/// empty list when the document doesn't parse.
+fn component_completion_items(text: &str) -> Vec<CompletionItem> {
+    let Ok(file) = parse_str(text) else {
+        return Vec::new();
+    };
+    file.components
+        .iter()
+        .map(|c| CompletionItem {
+            label: c.name.clone(),
+            kind: Some(CompletionItemKind::CLASS),
+            detail: Some(format!("RUITL component ({} prop(s))", c.props.len())),
+            insert_text: Some(format!("{}()", c.name)),
+            ..Default::default()
+        })
+        .collect()
+}
+
+/// Best-effort: character immediately before `pos`. Returns None on
+/// line 0 column 0 or malformed positions.
+fn char_before_position(text: &str, pos: Position) -> Option<char> {
+    let line = text.lines().nth(pos.line as usize)?;
+    if pos.character == 0 {
+        return None;
+    }
+    line.chars().nth((pos.character - 1) as usize)
+}
+
+fn trigger_slice(c: char) -> String {
+    c.to_string()
 }
 
 /// Run the full pipeline (parse + codegen) and translate each error into
@@ -146,6 +209,15 @@ impl LanguageServer for Backend {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
                     TextDocumentSyncKind::FULL,
                 )),
+                document_formatting_provider: Some(OneOf::Left(true)),
+                completion_provider: Some(CompletionOptions {
+                    // Trigger on `@` (component invocation) and `<` (HTML
+                    // tag). Without triggers, clients still invoke
+                    // completion on manual request, so this only adds
+                    // auto-fire points.
+                    trigger_characters: Some(vec!["@".to_string(), "<".to_string()]),
+                    ..Default::default()
+                }),
                 ..Default::default()
             },
         })
@@ -199,6 +271,78 @@ impl LanguageServer for Backend {
         // Clear diagnostics so stale squigglies don't linger.
         self.client.publish_diagnostics(uri, vec![], None).await;
     }
+
+    async fn completion(
+        &self,
+        params: CompletionParams,
+    ) -> RpcResult<Option<CompletionResponse>> {
+        let uri = params.text_document_position.text_document.uri;
+        let pos = params.text_document_position.position;
+        let text = match self.documents.get(&uri) {
+            Some(t) => t.clone(),
+            None => return Ok(None),
+        };
+
+        let trigger = params
+            .context
+            .as_ref()
+            .and_then(|c| c.trigger_character.clone());
+        let char_before = char_before_position(&text, pos);
+
+        let items = match trigger.as_deref().or(char_before.map(trigger_slice).as_deref()) {
+            Some("@") => component_completion_items(&text),
+            Some("<") => html_tag_completion_items(),
+            _ => {
+                // Manual invocation without a trigger char. Offer both sets
+                // so users can always get help.
+                let mut both = component_completion_items(&text);
+                both.extend(html_tag_completion_items());
+                both
+            }
+        };
+
+        if items.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(CompletionResponse::Array(items)))
+        }
+    }
+
+    async fn formatting(
+        &self,
+        params: DocumentFormattingParams,
+    ) -> RpcResult<Option<Vec<TextEdit>>> {
+        let uri = params.text_document.uri;
+        let original = match self.documents.get(&uri) {
+            Some(entry) => entry.clone(),
+            None => return Ok(None),
+        };
+
+        let formatted = match format::format_source(&original) {
+            Ok(s) => s,
+            Err(_) => {
+                // Don't modify a file we can't parse — editor will show the
+                // parse error from the diagnostic channel instead.
+                return Ok(None);
+            }
+        };
+
+        if formatted == original {
+            return Ok(Some(Vec::new()));
+        }
+
+        // Replace the entire document. The end position covers every line
+        // at column 0, which is the LSP-idiomatic way to select "to EOF".
+        let line_count = original.lines().count().max(1) as u32;
+        let edit = TextEdit {
+            range: Range {
+                start: Position::new(0, 0),
+                end: Position::new(line_count, 0),
+            },
+            new_text: formatted,
+        };
+        Ok(Some(vec![edit]))
+    }
 }
 
 #[cfg(test)]
@@ -230,5 +374,42 @@ mod tests {
         let diags = diagnose(src);
         assert_eq!(diags.len(), 1);
         assert!(diags[0].message.contains("Lifetime parameters"));
+    }
+
+    #[test]
+    fn component_completion_lists_declared_components() {
+        let src = "component Alpha { props { x: String } }\n\
+                   component Beta { props {} }\n\
+                   ruitl Alpha(x: String) { <p>{x}</p> }";
+        let items = component_completion_items(src);
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"Alpha"));
+        assert!(labels.contains(&"Beta"));
+        // Insert text should include `()` so the editor lands the cursor
+        // for the user to start typing props.
+        assert!(items
+            .iter()
+            .any(|i| i.insert_text.as_deref() == Some("Alpha()")));
+    }
+
+    #[test]
+    fn html_tag_completion_covers_common_tags() {
+        let items = html_tag_completion_items();
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        for expected in &["div", "span", "button", "form", "input", "table"] {
+            assert!(
+                labels.contains(expected),
+                "html tag completion missing `{}`",
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn char_before_position_handles_edges() {
+        let text = "abc\ndef";
+        assert_eq!(char_before_position(text, Position::new(0, 0)), None);
+        assert_eq!(char_before_position(text, Position::new(0, 1)), Some('a'));
+        assert_eq!(char_before_position(text, Position::new(1, 2)), Some('e'));
     }
 }

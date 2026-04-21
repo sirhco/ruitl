@@ -4,25 +4,28 @@ Language Server Protocol implementation for RUITL templates. Built on
 [`tower-lsp`](https://github.com/ebkalderon/tower-lsp), talks JSON-RPC over
 stdio.
 
-## What it does (v0.1)
+## What it does
 
-- Parses every `.ruitl` file on open/change/save.
-- Runs codegen on the parsed AST to surface codegen-only errors (e.g.
-  invalid generic bounds, unsupported constructs).
-- Publishes `textDocument/publishDiagnostics` for each error, with range
-  pulled from the compiler's `at line L, column C` format.
+- **Diagnostics** — parses every `.ruitl` on open/change/save. Parser and
+  codegen errors surface as `textDocument/publishDiagnostics` with
+  ranges derived from the compiler's `at line L, column C` format.
+- **Formatting** — `textDocument/formatting` returns a single `TextEdit`
+  replacing the buffer with canonical output from
+  `ruitl_compiler::format::format_source`. Clients typically wire this
+  to "format on save".
+- **Completion** — triggered on `@` (component invocation) and `<` (HTML
+  tag). Component list is parsed from the current buffer; HTML tag list
+  is a static HTML5 allowlist. Manual invocation returns both sets.
 
 ## What it doesn't do (yet)
 
-- No completion — component names, props, HTML tags and attrs all still
-  require typing. Roadmap: v0.5+.
-- No go-to-definition for `@Component` references. Needs a cross-file
-  index; roadmap: v0.5+.
-- No format-on-save. That requires an AST → `.ruitl` pretty-printer which
-  doesn't exist. Tracked as a separate feature.
-- No rust-analyzer bridge for expressions inside `{...}`. Out of scope
-  for any foreseeable version — delegated to the rust-analyzer server
-  for the corresponding `.rs` file.
+- **Rust-aware completion inside `{...}`** — needs a rust-analyzer
+  bridge. Explicitly out of scope.
+- **Cross-file go-to-definition** for `@Component` references. Current
+  scope is single-document; needs a workspace index. Roadmap: v0.5+.
+- **Prop-name completion inside `@X(...)` arg list** — feasible within
+  the current index but not yet wired. Good next-pass target.
+- **Hover with prop types / docs.** Same — needs symbol index.
 
 ## Install
 
