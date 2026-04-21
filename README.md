@@ -34,7 +34,7 @@ A template compiler for building type-safe HTML components in Rust, modelled on 
 | Minification | Optional | `--features minify` post-render via `minify-html` (planned) |
 | Static site generation | Planned | `ruitl build` subcommand with `[[routes]]` config (planned) |
 | Parser error context | Rustc-style frame | Line/col + caret + source context |
-| Editor support | Planned | Tree-sitter grammar (v0.3) then LSP; see [Editor support](#editor-support) |
+| Editor support | Stable (diagnostics) | tree-sitter grammar + LSP shipping; completion + format-on-save planned |
 
 See `tests/fixtures/snapshots/*.snap` for canonical codegen output.
 
@@ -793,13 +793,17 @@ generated_dir = "generated"
 
 ## 🖋️ Editor support
 
-`.ruitl` files currently open as plain text in every editor — no highlighting, no diagnostics, no completion. Planned roadmap:
+Two editor-integration crates ship alongside the compiler:
 
-- **v0.3 — tree-sitter grammar.** Ships syntax highlighting in Neovim, Helix, Zed, and any other tree-sitter-aware editor. Published to `nvim-treesitter` and Zed's extension registry.
-- **v0.4 — basic LSP** (`ruitl-lsp` crate, `tower-lsp`-based): forwards parser/codegen errors as `textDocument/publishDiagnostics`; formats on save via the existing rustfmt pipeline.
-- **v0.5+ — completion**: component names in `@X(...)`, prop names in `{x.field}`, HTML tags/attrs. Rust-aware expression completion (inside `{...}`) depends on a rust-analyzer bridge and is explicitly out of scope for now.
+- **[`tree-sitter-ruitl`](tree-sitter-ruitl/README.md)** — tree-sitter grammar for syntax highlighting in Neovim, Helix, Zed, and any tree-sitter-aware editor. Injects the `rust` language into `{ ... }` expression spans so embedded Rust highlights too.
+- **[`ruitl_lsp`](ruitl_lsp/README.md)** — Language Server. Reports parse and codegen errors as `textDocument/publishDiagnostics` in real time. Install via `cargo install --path ruitl_lsp`; wiring snippets for Neovim, Helix, VS Code, Zed in the crate README.
 
-Until then, the pragmatic workflow is: enable watch mode (`ruitl compile --watch`) in one terminal, edit `.ruitl` files in your editor of choice, and let the parser+codegen errors from the watcher guide you.
+Roadmap beyond this release:
+
+- **v0.5+ — completion**: component names in `@X(...)`, prop names in `{x.field}`, HTML tags/attrs. Rust-aware expression completion (inside `{...}`) depends on a rust-analyzer bridge and is explicitly out of scope.
+- **format-on-save** — needs an AST → `.ruitl` pretty-printer that doesn't exist yet. Tracked separately.
+
+Fallback if you don't wire the LSP: enable watch mode (`ruitl compile --watch`) in one terminal and let the parser+codegen errors from the watcher guide you.
 
 ## 🤔 FAQ
 
