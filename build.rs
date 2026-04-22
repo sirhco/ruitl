@@ -9,6 +9,14 @@ use std::path::{Path, PathBuf};
 use std::process;
 
 fn main() {
+    // docs.rs mounts the crate source read-only while building, and the
+    // committed sibling `*_ruitl.rs` files already match what we'd emit —
+    // so there is nothing to do there. Ditto any host that explicitly
+    // opts out via `RUITL_SKIP_BUILD=1`.
+    if env::var_os("DOCS_RS").is_some() || env::var_os("RUITL_SKIP_BUILD").is_some() {
+        return;
+    }
+
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
     let manifest_root = PathBuf::from(&manifest_dir);
 
