@@ -801,22 +801,22 @@ cargo build
 
 ### 🚧 Enhancement Opportunities
 
-- [ ] Hot reload development mode
-- [ ] IDE support and syntax highlighting
-- [ ] Advanced error messages with suggestions
-- [ ] Template inheritance
-- [ ] Performance optimizations
+- [x] Hot reload development mode (`ruitl dev` — restarts cargo + browser WS reload)
+- [x] IDE support and syntax highlighting (Zed + VS Code extensions, tree-sitter grammar)
+- [x] Advanced error messages with suggestions (did-you-mean for unknown components/props)
+- [x] Template inheritance (`{children}` slot + `@Card(...) { body }` syntax)
+- [x] Performance optimizations (rayon parallel compile, buffer-reuse render API, criterion benches)
 
 ### 🎯 Roadmap
 
 - [x] ~~Advanced template features~~ **COMPLETE**
-- [ ] Hot reload development mode
-- [ ] IDE support and syntax highlighting
-- [ ] Performance optimizations and caching
-- [ ] Template inheritance
-- [ ] Server-side streaming
-- [ ] Component testing utilities
-- [ ] Template debugging tools
+- [x] ~~Hot reload development mode~~ **COMPLETE** (`ruitl dev`)
+- [x] ~~IDE support and syntax highlighting~~ **COMPLETE**
+- [x] ~~Performance optimizations and caching~~ **COMPLETE**
+- [x] ~~Template inheritance~~ **COMPLETE** (`{children}` slot)
+- [x] ~~Server-side streaming~~ **COMPLETE** (`Html::to_chunks` + `streaming_demo`)
+- [x] ~~Component testing utilities~~ **COMPLETE** (`ruitl::testing`, `testing` feature)
+- [x] ~~Template debugging tools~~ **PARTIAL** (`ruitl compile --emit-ast`)
 
 ## 🔧 Configuration
 
@@ -830,15 +830,17 @@ generated_dir = "generated"
 
 ## 🖋️ Editor support
 
-Two editor-integration crates ship alongside the compiler:
+Four editor-integration crates ship alongside the compiler:
 
 - **[`tree-sitter-ruitl`](tree-sitter-ruitl/README.md)** — tree-sitter grammar for syntax highlighting in Neovim, Helix, Zed, and any tree-sitter-aware editor. Injects the `rust` language into `{ ... }` expression spans so embedded Rust highlights too.
-- **[`ruitl_lsp`](ruitl_lsp/README.md)** — Language Server. Reports parse and codegen errors as `textDocument/publishDiagnostics` in real time. Install via `cargo install --path ruitl_lsp`; wiring snippets for Neovim, Helix, VS Code, Zed in the crate README.
+- **[`ruitl_lsp`](ruitl_lsp/README.md)** — Language Server. Reports parse and codegen errors as `textDocument/publishDiagnostics` in real time. Supports formatting, completion (`@` + `<` + prop-names inside `@X(...)`), hover, and go-to-definition. Install via `cargo install --path ruitl_lsp`.
+- **[`zed-extension-ruitl`](zed-extension-ruitl/README.md)** — Zed extension that bundles the tree-sitter grammar and wires the LSP over stdio. Local install: `zed: install dev extension` → point at `zed-extension-ruitl/`.
+- **[`vscode-extension-ruitl`](vscode-extension-ruitl/README.md)** — VS Code extension bridging `ruitl-lsp` plus a TextMate grammar fallback for syntax highlighting. Package locally with `npx vsce package && code --install-extension ruitl-0.1.0.vsix`.
 
 Roadmap beyond this release:
 
-- **v0.5+ — completion**: component names in `@X(...)`, prop names in `{x.field}`, HTML tags/attrs. Rust-aware expression completion (inside `{...}`) depends on a rust-analyzer bridge and is explicitly out of scope.
-- **format-on-save** — needs an AST → `.ruitl` pretty-printer that doesn't exist yet. Tracked separately.
+- **Marketplace publishing** — Zed registry + VS Code Marketplace + npm for `tree-sitter-ruitl` (blocked on publisher account setup, not engineering).
+- **Rust-aware expression completion** — completion inside `{...}` depends on a rust-analyzer bridge; intentionally out of scope.
 
 Fallback if you don't wire the LSP: enable watch mode (`ruitl compile --watch`) in one terminal and let the parser+codegen errors from the watcher guide you.
 

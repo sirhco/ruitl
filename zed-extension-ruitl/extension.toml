@@ -1,0 +1,24 @@
+id = "ruitl"
+name = "RUITL"
+description = "RUITL template language support (syntax highlighting + LSP)"
+version = "0.1.0"
+schema_version = 1
+authors = ["RUITL contributors"]
+repository = "https://github.com/sirhco/ruitl"
+
+# Tree-sitter grammar. Zed clones the repo at `commit` and looks in
+# `path` for `src/parser.c`. The generated parser is now committed to
+# git so Zed doesn't need tree-sitter-cli.
+#
+# IMPORTANT: bump `commit` to the latest SHA whenever you regenerate the
+# grammar (`npx tree-sitter generate` + commit). Get it with:
+#   git rev-parse HEAD
+[grammars.ruitl]
+repository = "https://github.com/sirhco/ruitl"
+commit = "f9bd0440bfa409bf6cf7e2af555c1fba7f71e4cb"
+path = "tree-sitter-ruitl"
+
+# Language server: launches `ruitl-lsp` from $PATH.
+[language_servers.ruitl-lsp]
+name = "ruitl-lsp"
+languages = ["RUITL"]
