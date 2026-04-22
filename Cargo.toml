@@ -13,13 +13,19 @@ exclude = [
 
 [package]
 name = "ruitl"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
-description = "A Rust UI Template Language for building HTML components and applications"
+description = "Template compiler for type-safe, server-rendered HTML components in Rust"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/sirhco/ruitl"
-keywords = ["html", "template", "ui", "ssr", "static"]
-categories = ["web-programming", "template-engine"]
+documentation = "https://docs.rs/ruitl"
+readme = "README.md"
+keywords = ["html", "template", "ssr", "components", "templ"]
+categories = ["web-programming", "template-engine", "compilers"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [[bin]]
 name = "ruitl"
@@ -74,14 +80,15 @@ urlencoding = "2.1"
 uuid = { version = "1.0", features = ["v4"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 
-# Compiler (parser + codegen) — shared with build.rs
-ruitl_compiler = { path = "ruitl_compiler" }
+# Compiler (parser + codegen) — shared with build.rs.
+# Path + version: path wins for workspace dev, version is what crates.io uses.
+ruitl_compiler = { path = "ruitl_compiler", version = "0.2.0" }
 
 # Development dependencies
 # Build dependencies
 [build-dependencies]
 walkdir = "2.3"
-ruitl_compiler = { path = "ruitl_compiler" }
+ruitl_compiler = { path = "ruitl_compiler", version = "0.2.0" }
 
 [dev-dependencies]
 tempfile = "3.0"
