@@ -1,0 +1,56 @@
+{
+  "name": "ruitl",
+  "displayName": "RUITL",
+  "description": "Syntax highlighting + Language Server for RUITL templates",
+  "version": "0.1.0",
+  "publisher": "ruitl",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sirhco/ruitl.git",
+    "directory": "vscode-extension-ruitl"
+  },
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": ["Programming Languages"],
+  "keywords": ["ruitl", "template", "html", "rust"],
+  "activationEvents": ["onLanguage:ruitl"],
+  "main": "./src/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "ruitl",
+        "aliases": ["RUITL", "ruitl"],
+        "extensions": [".ruitl"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "ruitl",
+        "scopeName": "source.ruitl",
+        "path": "./syntaxes/ruitl.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "RUITL",
+      "properties": {
+        "ruitl.server.path": {
+          "type": "string",
+          "default": "ruitl-lsp",
+          "description": "Path to the ruitl-lsp binary (default: resolved from PATH)."
+        },
+        "ruitl.server.trace": {
+          "type": "string",
+          "enum": ["off", "messages", "verbose"],
+          "default": "off",
+          "description": "Traces the communication between VS Code and the language server."
+        }
+      }
+    }
+  },
+  "devDependencies": {
+    "vscode-languageclient": "^9.0.1"
+  }
+}

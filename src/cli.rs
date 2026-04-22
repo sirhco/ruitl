@@ -43,6 +43,12 @@ pub enum Commands {
         /// Watch for changes and recompile
         #[arg(short, long)]
         watch: bool,
+        /// Dump the parser AST for each compiled file to a sibling
+        /// `<stem>.ast.txt`. Useful when diagnosing why codegen produces
+        /// unexpected output — you can see exactly what the parser thinks
+        /// your template means. Skips codegen when set.
+        #[arg(long)]
+        emit_ast: bool,
     },
     /// Format one or more `.ruitl` files in place (or a whole directory).
     /// With `--check`, exits with a non-zero status when any file is not
@@ -80,6 +86,18 @@ pub enum Commands {
         /// Include example components
         #[arg(long, default_value = "true")]
         with_examples: bool,
+    },
+    /// Run the development server: watch `.ruitl` files and serve a sidecar
+    /// SSE endpoint that browsers can subscribe to for auto-reload after
+    /// each recompile. Does NOT restart the user's own app server — run
+    /// that separately (e.g. with `cargo watch -x run`).
+    Dev {
+        /// Source directory containing .ruitl files
+        #[arg(short, long, default_value = "templates")]
+        src_dir: PathBuf,
+        /// Port for the reload sidecar (SSE + reload.js). Default 35729.
+        #[arg(long, default_value_t = 35729)]
+        reload_port: u16,
     },
     /// Show version information
     Version,
@@ -122,8 +140,16 @@ impl CliApp {
     /// Run the CLI application
     pub async fn run(&self, command: Commands) -> Result<()> {
         match command {
-            Commands::Compile { src_dir, watch } => {
-                self.compile_templates(&src_dir, watch).await
+            Commands::Compile {
+                src_dir,
+                watch,
+                emit_ast,
+            } => {
+                if emit_ast {
+                    self.emit_ast(&src_dir)
+                } else {
+                    self.compile_templates(&src_dir, watch).await
+                }
             }
             Commands::Fmt { paths, check } => self.fmt_paths(&paths, check),
             Commands::ValidateRoutes { config } => self.validate_routes(&config),
@@ -136,6 +162,10 @@ impl CliApp {
                 self.scaffold_project(&name, &target, with_server, with_examples)
                     .await
             }
+            Commands::Dev {
+                src_dir,
+                reload_port,
+            } => self.run_dev(&src_dir, reload_port).await,
             Commands::Version => {
                 println!("RUITL {}", env!("CARGO_PKG_VERSION"));
                 Ok(())
@@ -182,6 +212,80 @@ impl CliApp {
             self.run_watch_loop(src_dir, &compile_once)?;
         }
 
+        Ok(())
+    }
+
+    /// Launch the dev server (file watcher + SSE reload sidecar).
+    /// Delegates to `ruitl::dev::run_dev`. Requires the `dev` + `server`
+    /// feature combo; returns a clear error otherwise.
+    #[cfg(all(feature = "dev", feature = "server"))]
+    async fn run_dev(&self, src_dir: &Path, reload_port: u16) -> Result<()> {
+        if !src_dir.exists() {
+            return Err(RuitlError::config(format!(
+                "Source directory '{}' does not exist",
+                src_dir.display()
+            )));
+        }
+        crate::dev::run_dev(
+            src_dir,
+            crate::dev::DevOptions {
+                reload_port,
+                verbose: self.verbose,
+            },
+        )
+        .await
+    }
+
+    #[cfg(not(all(feature = "dev", feature = "server")))]
+    async fn run_dev(&self, _src_dir: &Path, _reload_port: u16) -> Result<()> {
+        Err(RuitlError::generic(
+            "`ruitl dev` requires both the 'dev' and 'server' features (enabled by default). \
+             Rebuild without --no-default-features, or pass --features dev,server.",
+        ))
+    }
+
+    /// Parse every `.ruitl` file under `src_dir` and write its AST in
+    /// human-readable `{:#?}` form to a sibling `<stem>.ast.txt`. Skips
+    /// codegen entirely — purely a debugging aid for authors diagnosing
+    /// why a template parses in an unexpected shape.
+    fn emit_ast(&self, src_dir: &Path) -> Result<()> {
+        if !src_dir.exists() {
+            return Err(RuitlError::config(format!(
+                "Source directory '{}' does not exist",
+                src_dir.display()
+            )));
+        }
+
+        self.log_info(&format!(
+            "Dumping AST for .ruitl files in {}",
+            src_dir.display()
+        ));
+
+        let mut count = 0usize;
+        for entry in walkdir::WalkDir::new(src_dir)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            let path = entry.path();
+            if !path.is_file() || path.extension().map(|e| e != "ruitl").unwrap_or(true) {
+                continue;
+            }
+            let src = fs::read_to_string(path)
+                .map_err(|e| RuitlError::generic(format!("Read {}: {}", path.display(), e)))?;
+            let ast = ruitl_compiler::parse_str(&src)
+                .map_err(|e| RuitlError::generic(format!("Parse {}: {}", path.display(), e)))?;
+            let dump = format!("// AST dump for {}\n\n{:#?}\n", path.display(), ast);
+            let out_path = path.with_extension("ast.txt");
+            fs::write(&out_path, dump).map_err(|e| {
+                RuitlError::generic(format!("Write {}: {}", out_path.display(), e))
+            })?;
+            if self.verbose {
+                self.log_info(&format!("Wrote {}", out_path.display().to_string().green()));
+            }
+            count += 1;
+        }
+
+        self.log_success(&format!("✓ Dumped AST for {} templates", count));
         Ok(())
     }
 

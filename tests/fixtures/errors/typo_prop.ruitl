@@ -1,0 +1,22 @@
+// Fixture: invokes `@Button(texx: ...)` where Button declares `text`.
+// Codegen validation must reject the unknown prop with a suggestion.
+
+component Button {
+    props {
+        text: String,
+    }
+}
+
+ruitl Button(text: String) {
+    <button>{text}</button>
+}
+
+component Page {
+    props {}
+}
+
+ruitl Page() {
+    <section>
+        @Button(texx: "Click".to_string())
+    </section>
+}

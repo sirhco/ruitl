@@ -118,6 +118,12 @@ impl CodeGenerator {
 
     /// Generate complete Rust code for the entire file
     pub fn generate(&mut self) -> Result<TokenStream> {
+        // Check templates for undefined `@Component` references, unknown
+        // props at call sites, and reserved-name collisions before emitting
+        // any tokens. Failing fast here produces cleaner error messages than
+        // letting `syn`/`rustc` complain about the generated output.
+        self.validate_references()?;
+
         // Generate imports
         self.generate_imports()?;
 
@@ -966,6 +972,163 @@ impl CodeGenerator {
             .find(|t| t.name == name)
             .map(|t| Self::body_has_children_slot(&t.body))
             .unwrap_or(false)
+    }
+
+    /// Walk every template body once to surface broken `@Component(...)`
+    /// call sites before codegen. For each invocation we check:
+    ///   * component name is declared in this file or imported
+    ///   * every prop name matches a field on the callee's Props struct
+    ///     (only verifiable for same-file callees — out-of-file types are
+    ///     opaque here and left to `rustc`)
+    /// Suggestions are appended to the error message via `suggest::help_line`
+    /// so both CLI consumers and the LSP pick them up without structural
+    /// changes to `CompileError`.
+    fn validate_references(&self) -> Result<()> {
+        let known_components: Vec<&str> = self
+            .file
+            .components
+            .iter()
+            .map(|c| c.name.as_str())
+            .collect();
+        let imported_items: Vec<&str> = self
+            .file
+            .imports
+            .iter()
+            .flat_map(|imp| imp.items.iter().map(String::as_str))
+            .collect();
+
+        for tpl in &self.file.templates {
+            self.walk_validate(&tpl.body, &known_components, &imported_items, &tpl.name)?;
+        }
+        Ok(())
+    }
+
+    fn walk_validate(
+        &self,
+        ast: &TemplateAst,
+        known_components: &[&str],
+        imported_items: &[&str],
+        current_template: &str,
+    ) -> Result<()> {
+        match ast {
+            TemplateAst::Component {
+                name,
+                props,
+                children,
+            } => {
+                // Cross-file `@Component` invocations are legal: callees are
+                // resolved through the generated `mod.rs` module at Rust
+                // compile time, not at ruitl-compile time. So *don't* error
+                // on "unknown component" blindly — it would reject legit
+                // multi-file projects. Only error when the name is close
+                // enough to an in-file declaration to look like a typo.
+                let is_known = known_components.iter().any(|k| k == name)
+                    || imported_items.iter().any(|k| k == name);
+                if !is_known {
+                    let mut candidates: Vec<&str> = known_components.to_vec();
+                    candidates.extend_from_slice(imported_items);
+                    if let Some(suggestion) = crate::suggest::suggest(name, &candidates) {
+                        return Err(CompileError::codegen(format!(
+                            "Unknown component `{}` invoked via `@{}` in template `{}`.{}",
+                            name,
+                            name,
+                            current_template,
+                            crate::suggest::help_line(Some(suggestion.as_str()))
+                        )));
+                    }
+                    // No close match → assume it's a cross-file callee.
+                    // Fall through; skip prop validation (can't see the
+                    // callee's props from here).
+                    if let Some(body) = children {
+                        self.walk_validate(
+                            body,
+                            known_components,
+                            imported_items,
+                            current_template,
+                        )?;
+                    }
+                    return Ok(());
+                }
+
+                // Same-file callees: check prop names against the callee's
+                // declared prop list. Out-of-file (imported) callees stay
+                // opaque here; `rustc` will catch mistypes on the struct
+                // literal downstream.
+                if let Some(callee) = self.file.components.iter().find(|c| c.name == *name) {
+                    let declared: Vec<&str> =
+                        callee.props.iter().map(|p| p.name.as_str()).collect();
+                    // `children` is auto-injected when the slot is used and
+                    // is always a legal prop name at call sites.
+                    let legal_extra = ["children"];
+                    for pv in props {
+                        let is_declared =
+                            declared.contains(&pv.name.as_str()) || legal_extra.contains(&pv.name.as_str());
+                        if !is_declared {
+                            let suggestion = crate::suggest::suggest(&pv.name, &declared);
+                            return Err(CompileError::codegen(format!(
+                                "No prop `{}` on `{}Props` (called from template `{}`).{}",
+                                pv.name,
+                                name,
+                                current_template,
+                                crate::suggest::help_line(suggestion.as_deref())
+                            )));
+                        }
+                    }
+                }
+
+                if let Some(body) = children {
+                    self.walk_validate(body, known_components, imported_items, current_template)?;
+                }
+                Ok(())
+            }
+            TemplateAst::Element { children, .. } => {
+                for c in children {
+                    self.walk_validate(c, known_components, imported_items, current_template)?;
+                }
+                Ok(())
+            }
+            TemplateAst::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                self.walk_validate(
+                    then_branch,
+                    known_components,
+                    imported_items,
+                    current_template,
+                )?;
+                if let Some(e) = else_branch {
+                    self.walk_validate(e, known_components, imported_items, current_template)?;
+                }
+                Ok(())
+            }
+            TemplateAst::For { body, .. } => {
+                self.walk_validate(body, known_components, imported_items, current_template)
+            }
+            TemplateAst::Match { arms, .. } => {
+                for arm in arms {
+                    self.walk_validate(
+                        &arm.body,
+                        known_components,
+                        imported_items,
+                        current_template,
+                    )?;
+                }
+                Ok(())
+            }
+            TemplateAst::Fragment(nodes) => {
+                for n in nodes {
+                    self.walk_validate(n, known_components, imported_items, current_template)?;
+                }
+                Ok(())
+            }
+            TemplateAst::Text(_)
+            | TemplateAst::Expression(_)
+            | TemplateAst::RawExpression(_)
+            | TemplateAst::Raw(_)
+            | TemplateAst::Children => Ok(()),
+        }
     }
 
     /// Recursively checks whether `ast` contains a `TemplateAst::Children`

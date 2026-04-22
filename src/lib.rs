@@ -44,8 +44,21 @@ pub mod build;
 pub mod cli;
 pub mod component;
 pub mod config;
+/// `ruitl dev` subcommand implementation — file watcher + SSE reload
+/// sidecar. Gated on both the `dev` and `server` features since it needs
+/// `hotwatch` and `hyper`.
+#[cfg(all(feature = "dev", feature = "server"))]
+pub mod dev;
 pub mod error;
 pub mod html;
+
+/// Test-support helpers (`ComponentTestHarness`, `HtmlAssertion`,
+/// `assert_html_contains!`, `assert_renders_to!`). Feature-gated so they
+/// don't bloat release binaries — consumers enable with
+/// `features = ["testing"]` in their `[dev-dependencies]`. Always available
+/// inside this crate's own tests.
+#[cfg(any(test, feature = "testing"))]
+pub mod testing;
 
 /// Parser AST and tokenizer — re-exported from the shared `ruitl_compiler` crate.
 pub use ruitl_compiler::parser;

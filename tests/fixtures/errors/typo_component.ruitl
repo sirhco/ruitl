@@ -1,0 +1,23 @@
+// Fixture: invokes a mistyped component name (`@Buttom`) where only
+// `@Button` is declared. Codegen validation must reject it with a
+// "did you mean `Button`?" suggestion.
+
+component Button {
+    props {
+        text: String,
+    }
+}
+
+ruitl Button(text: String) {
+    <button>{text}</button>
+}
+
+component Page {
+    props {}
+}
+
+ruitl Page() {
+    <section>
+        @Buttom(text: "Click".to_string())
+    </section>
+}
