@@ -546,6 +546,41 @@ ruitl Example(count: u32, items: Vec<String>) {
 }
 ```
 
+### Template Inheritance via `{children}`
+
+Pass a body block into a component with `@Name(props) { ... }` and receive
+it inside the callee with the `{children}` slot. Mirrors Go templ's
+children-prop convention.
+
+```ruitl
+component Card {
+    props {
+        title: String,
+    }
+}
+
+ruitl Card(title: String) {
+    <div class="card">
+        <h2>{title}</h2>
+        <div class="body">{children}</div>
+    </div>
+}
+
+ruitl Page() {
+    @Card(title: "Welcome".to_string()) {
+        <p>First paragraph.</p>
+        <p>Second paragraph.</p>
+    }
+}
+```
+
+Codegen auto-injects `pub children: Html` into the callee's Props struct
+whenever its template body references `{children}`. Call sites without a
+body block default the field to `Html::Empty`. Multiple `{children}` refs
+in the same template are allowed; each expands to a clone of the slot.
+The bare identifier `{children}` is the slot placeholder — `{my.children}`
+or any dotted path stays a normal expression.
+
 ## ⚙️ Build Process
 
 RUITL integrates seamlessly with Cargo's build system:

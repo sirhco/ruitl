@@ -85,6 +85,13 @@ Generated files use short type names relying on `use ruitl::prelude::*; use ruit
 - Inline Rust exprs in `{}`; attribute interpolation `class={expr}`; boolean attrs `disabled?={expr}`
 - Control flow: `if`/`else`, `for x in iter`, `match expr { arm => ... }`
 - Component composition: `@ChildComponent(prop=value)` — threads `context` through
+- Body-block children: `@ChildComponent(prop=value) { <inner/> }` passes the
+  block as `children: Html` on the callee. Inside the callee, the bare slot
+  `{children}` expands to `props.children.clone()`. `{Name}Props` auto-gains a
+  `pub children: Html` field when the template body references `{children}`;
+  if the user already declared a `children` prop explicitly, the user's
+  declaration wins (no duplicate field). Dotted forms like `{my.children}`
+  parse as ordinary expressions, not the slot.
 - `import` statements at top of file
 - Whitespace between `{expr}` and adjacent text is preserved (significant for HTML spacing)
 

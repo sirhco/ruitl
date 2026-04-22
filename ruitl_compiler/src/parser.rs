@@ -98,8 +98,19 @@ pub enum TemplateAst {
         expression: String,
         arms: Vec<MatchArm>,
     },
-    /// Component invocation: @Button(props)
-    Component { name: String, props: Vec<PropValue> },
+    /// Component invocation: `@Button(props)` or `@Card(title: "x") { <p/>body }`.
+    /// `children` carries the optional `{ ... }` body block passed to the
+    /// callee as its `children: Html` prop.
+    Component {
+        name: String,
+        props: Vec<PropValue>,
+        children: Option<Box<TemplateAst>>,
+    },
+    /// `{children}` inside a template body — placeholder that is replaced at
+    /// codegen with `props.children.clone()`. The props struct for the owning
+    /// component auto-gains a `pub children: Html` field when this variant
+    /// appears anywhere in the body.
+    Children,
     /// Multiple nodes
     Fragment(Vec<TemplateAst>),
     /// Raw HTML (unescaped)
@@ -649,6 +660,13 @@ impl RuitlParser {
             return Err(self.error("Expected '}' to close expression"));
         }
 
+        // `{children}` (not `{children.foo}` or `{my.children}`) is the
+        // slot-placeholder form. Only recognise it when the bare identifier
+        // `children` appears with no further path/call syntax.
+        if !raw && expr.trim() == "children" {
+            return Ok(TemplateAst::Children);
+        }
+
         if raw {
             Ok(TemplateAst::RawExpression(expr))
         } else {
@@ -699,7 +717,25 @@ impl RuitlParser {
             return Err(self.error("Expected ')' to close component invocation"));
         }
 
-        Ok(TemplateAst::Component { name, props })
+        // Optional body block: `@Card(title: "x") { <p/>More }`. The body
+        // becomes the callee's `children` prop.
+        self.skip_whitespace();
+        let children = if self.check_char('{') {
+            self.advance(); // consume '{'
+            let body = self.parse_template_body()?;
+            if !self.match_char('}') {
+                return Err(self.error("Expected '}' to close component body"));
+            }
+            Some(Box::new(body))
+        } else {
+            None
+        };
+
+        Ok(TemplateAst::Component {
+            name,
+            props,
+            children,
+        })
     }
 
     fn parse_if_statement(&mut self) -> Result<TemplateAst> {
@@ -1516,9 +1552,15 @@ ruitl Greeting(name: String) {
         let mut parser = RuitlParser::new(input.to_string());
         let result = parser.parse_component_invocation().unwrap();
 
-        if let TemplateAst::Component { name, props } = result {
+        if let TemplateAst::Component {
+            name,
+            props,
+            children,
+        } = result
+        {
             assert_eq!(name, "Button");
             assert_eq!(props.len(), 2);
+            assert!(children.is_none(), "no body block → children is None");
 
             assert_eq!(props[0].name, "text");
             assert_eq!(props[0].value, "\"Click me\"");
@@ -1528,6 +1570,57 @@ ruitl Greeting(name: String) {
         } else {
             panic!("Expected component AST node");
         }
+    }
+
+    #[test]
+    fn test_parse_component_with_body() {
+        let input = r#"@Card(title: "Hi") { <p>Body</p> }"#;
+        let mut parser = RuitlParser::new(input.to_string());
+        let result = parser.parse_component_invocation().unwrap();
+
+        let TemplateAst::Component {
+            name,
+            props,
+            children,
+        } = result
+        else {
+            panic!("expected Component")
+        };
+        assert_eq!(name, "Card");
+        assert_eq!(props.len(), 1);
+        let body = children.expect("body block must be captured as children");
+        // The body should contain an element `<p>Body</p>`.
+        let children_vec = match *body {
+            TemplateAst::Fragment(v) => v,
+            other => vec![other],
+        };
+        let has_p = children_vec.iter().any(|n| matches!(n, TemplateAst::Element { tag, .. } if tag == "p"));
+        assert!(has_p, "body must contain <p> element");
+    }
+
+    #[test]
+    fn test_children_keyword_node() {
+        let input = "{children}";
+        let mut parser = RuitlParser::new(input.to_string());
+        let result = parser.parse_expression_node().unwrap();
+        assert!(
+            matches!(result, TemplateAst::Children),
+            "bare `{{children}}` must emit TemplateAst::Children, got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_dotted_children_is_expression_not_slot() {
+        let input = "{my.children}";
+        let mut parser = RuitlParser::new(input.to_string());
+        let result = parser.parse_expression_node().unwrap();
+        // Dotted `children` is a regular field access — NOT the slot form.
+        assert!(
+            matches!(result, TemplateAst::Expression(ref s) if s == "my.children"),
+            "`{{my.children}}` must parse as Expression, got {:?}",
+            result
+        );
     }
 
     #[test]
