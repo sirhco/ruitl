@@ -1,6 +1,6 @@
 [package]
 name = "ruitl_lsp"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 description = "Language server for RUITL templates — diagnostics, formatting, completion, hover, go-to-definition"
 license = "MIT OR Apache-2.0"
@@ -26,7 +26,7 @@ path = "src/lib.rs"
 tower-lsp = "0.20"
 tokio = { version = "1.0", features = ["rt-multi-thread", "io-std", "io-util", "macros", "sync"] }
 dashmap = "5.5"
-ruitl_compiler = { path = "../ruitl_compiler", version = "0.2.1" }
+ruitl_compiler = { path = "../ruitl_compiler", version = "0.2.2" }
 
 [dev-dependencies]
 tokio = { version = "1.0", features = ["rt-multi-thread", "io-std", "io-util", "macros", "sync", "test-util"] }
