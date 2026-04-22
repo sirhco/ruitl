@@ -44,6 +44,11 @@ pub mod build;
 pub mod cli;
 pub mod component;
 pub mod config;
+/// `ruitl dev` subcommand implementation — file watcher + SSE reload
+/// sidecar. Gated on both the `dev` and `server` features since it needs
+/// `hotwatch` and `hyper`.
+#[cfg(all(feature = "dev", feature = "server"))]
+pub mod dev;
 pub mod error;
 pub mod html;
 
