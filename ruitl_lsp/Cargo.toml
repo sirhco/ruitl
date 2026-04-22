@@ -1,10 +1,18 @@
 [package]
 name = "ruitl_lsp"
-version = "0.1.0"
+version = "0.2.1"
 edition = "2021"
-description = "Language Server Protocol implementation for RUITL templates"
+description = "Language server for RUITL templates — diagnostics, formatting, completion, hover, go-to-definition"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/sirhco/ruitl"
+documentation = "https://docs.rs/ruitl_lsp"
+readme = "README.md"
+keywords = ["lsp", "language-server", "ruitl", "template", "editor"]
+categories = ["development-tools", "text-editors"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [[bin]]
 name = "ruitl-lsp"
@@ -18,7 +26,7 @@ path = "src/lib.rs"
 tower-lsp = "0.20"
 tokio = { version = "1.0", features = ["rt-multi-thread", "io-std", "io-util", "macros", "sync"] }
 dashmap = "5.5"
-ruitl_compiler = { path = "../ruitl_compiler" }
+ruitl_compiler = { path = "../ruitl_compiler", version = "0.2.1" }
 
 [dev-dependencies]
 tokio = { version = "1.0", features = ["rt-multi-thread", "io-std", "io-util", "macros", "sync", "test-util"] }
