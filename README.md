@@ -392,6 +392,37 @@ ruitl compile \
 - `--watch` - Watch for file changes and recompile automatically
 - `--verbose` - Show detailed compilation output
 
+#### `dev` - Development Server with Browser Reload
+
+Watch `.ruitl` files, recompile on save, and push a reload event to any
+browser subscribed to the sidecar SSE endpoint. Intentionally does NOT
+manage your app server process — pair it with `cargo watch -x run` or run
+your app manually in another terminal.
+
+```bash
+# Default — watch ./templates, sidecar on port 35729
+ruitl dev
+
+# Custom directory and port
+ruitl dev --src-dir my-templates --reload-port 40000
+```
+
+Add this script tag to your layout while in development:
+
+```html
+<script src="http://127.0.0.1:35729/ruitl/reload.js"></script>
+```
+
+**Options:**
+- `--src-dir <PATH>` - Template source directory (default: `templates`)
+- `--reload-port <PORT>` - Reload sidecar port (default: `35729`)
+
+The server exposes two endpoints:
+
+- `GET /ruitl/reload.js` — auto-reconnecting SSE client script.
+- `GET /ruitl/reload` — SSE stream; fires `event: reload` after each
+  successful recompile.
+
 #### `version` - Show Version
 
 Display RUITL version information:

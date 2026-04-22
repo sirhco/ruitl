@@ -87,6 +87,18 @@ pub enum Commands {
         #[arg(long, default_value = "true")]
         with_examples: bool,
     },
+    /// Run the development server: watch `.ruitl` files and serve a sidecar
+    /// SSE endpoint that browsers can subscribe to for auto-reload after
+    /// each recompile. Does NOT restart the user's own app server — run
+    /// that separately (e.g. with `cargo watch -x run`).
+    Dev {
+        /// Source directory containing .ruitl files
+        #[arg(short, long, default_value = "templates")]
+        src_dir: PathBuf,
+        /// Port for the reload sidecar (SSE + reload.js). Default 35729.
+        #[arg(long, default_value_t = 35729)]
+        reload_port: u16,
+    },
     /// Show version information
     Version,
 }
@@ -150,6 +162,10 @@ impl CliApp {
                 self.scaffold_project(&name, &target, with_server, with_examples)
                     .await
             }
+            Commands::Dev {
+                src_dir,
+                reload_port,
+            } => self.run_dev(&src_dir, reload_port).await,
             Commands::Version => {
                 println!("RUITL {}", env!("CARGO_PKG_VERSION"));
                 Ok(())
@@ -197,6 +213,35 @@ impl CliApp {
         }
 
         Ok(())
+    }
+
+    /// Launch the dev server (file watcher + SSE reload sidecar).
+    /// Delegates to `ruitl::dev::run_dev`. Requires the `dev` + `server`
+    /// feature combo; returns a clear error otherwise.
+    #[cfg(all(feature = "dev", feature = "server"))]
+    async fn run_dev(&self, src_dir: &Path, reload_port: u16) -> Result<()> {
+        if !src_dir.exists() {
+            return Err(RuitlError::config(format!(
+                "Source directory '{}' does not exist",
+                src_dir.display()
+            )));
+        }
+        crate::dev::run_dev(
+            src_dir,
+            crate::dev::DevOptions {
+                reload_port,
+                verbose: self.verbose,
+            },
+        )
+        .await
+    }
+
+    #[cfg(not(all(feature = "dev", feature = "server")))]
+    async fn run_dev(&self, _src_dir: &Path, _reload_port: u16) -> Result<()> {
+        Err(RuitlError::generic(
+            "`ruitl dev` requires both the 'dev' and 'server' features (enabled by default). \
+             Rebuild without --no-default-features, or pass --features dev,server.",
+        ))
     }
 
     /// Parse every `.ruitl` file under `src_dir` and write its AST in
