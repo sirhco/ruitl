@@ -26,7 +26,7 @@ Add RUITL to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ruitl = "0.1.0"
+ruitl = "0.2"
 tokio = { version = "1.0", features = ["full"] }
 
 [build-dependencies]
