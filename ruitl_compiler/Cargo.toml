@@ -1,10 +1,18 @@
 [package]
 name = "ruitl_compiler"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Parser and code generator for the RUITL (Rust UI Template Language)"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/sirhco/ruitl"
+documentation = "https://docs.rs/ruitl_compiler"
+readme = "README.md"
+keywords = ["html", "template", "codegen", "parser", "templ"]
+categories = ["compilers", "template-engine", "parser-implementations"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [lib]
 name = "ruitl_compiler"
