@@ -964,7 +964,7 @@ path = "bin/ruitl.rs"
 
 [dependencies]
 # RUITL dependency - Update this based on your setup:
-# For published version: ruitl = "0.1.0"
+# For published version: ruitl = "0.2"
 # For git version: ruitl = {{ git = "https://github.com/sirhco/ruitl.git" }}
 # For local development: ruitl = {{ path = "../path/to/ruitl" }}
 ruitl = {{ git = "https://github.com/sirhco/ruitl.git" }}
@@ -999,7 +999,7 @@ path = "bin/ruitl.rs"
 
 [dependencies]
 # RUITL dependency - Update this based on your setup:
-# For published version: ruitl = "0.1.0"
+# For published version: ruitl = "0.2"
 # For git version: ruitl = {{ git = "https://github.com/sirhco/ruitl.git" }}
 # For local development: ruitl = {{ path = "../path/to/ruitl" }}
 ruitl = {{ git = "https://github.com/sirhco/ruitl.git" }}
