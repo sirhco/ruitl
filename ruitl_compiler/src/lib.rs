@@ -10,6 +10,7 @@ pub mod codegen;
 pub mod error;
 pub mod format;
 pub mod parser;
+pub mod suggest;
 
 use std::fs;
 use std::path::{Path, PathBuf};
