@@ -97,6 +97,10 @@ harness = false
 name = "render"
 harness = false
 
+[[bench]]
+name = "compile_dir"
+harness = false
+
 [features]
 default = ["server", "static", "dev"]
 server = ["dep:hyper", "dep:hyper-tls", "tokio/rt-multi-thread"]
