@@ -329,6 +329,37 @@ impl Html {
         }
     }
 
+    /// Split rendering into chunks aligned to top-level `Fragment` children,
+    /// so a caller can stream them over an HTTP response body without holding
+    /// the whole document in memory at once. For non-`Fragment` inputs this
+    /// yields exactly one chunk (identical to `render()`). Each returned
+    /// `Vec<u8>` is independently written (same encoding rules as `render_to`),
+    /// so the concatenation equals `render()`.
+    ///
+    /// Typical usage with `hyper::Body::wrap_stream`:
+    /// ```ignore
+    /// let chunks = html.to_chunks();
+    /// let stream = futures::stream::iter(chunks.into_iter().map(Ok::<_, std::io::Error>));
+    /// hyper::Body::wrap_stream(stream)
+    /// ```
+    pub fn to_chunks(&self) -> Vec<Vec<u8>> {
+        match self {
+            Html::Fragment(children) if !children.is_empty() => children
+                .iter()
+                .map(|c| {
+                    let mut s = String::with_capacity(c.len_hint());
+                    let _ = c.render_to(&mut s);
+                    s.into_bytes()
+                })
+                .collect(),
+            _ => {
+                let mut s = String::with_capacity(self.len_hint());
+                let _ = self.render_to(&mut s);
+                vec![s.into_bytes()]
+            }
+        }
+    }
+
     /// Render the HTML to a writer
     pub fn render_to<W: Write>(&self, writer: &mut W) -> Result<()> {
         match self {
@@ -721,6 +752,27 @@ mod tests {
         let elem = Html::Element(div().child(Html::text("hello")));
         assert!(elem.len_hint() > 0);
         assert_eq!(Html::Empty.len_hint(), 0);
+    }
+
+    #[test]
+    fn test_to_chunks_splits_top_level_fragment() {
+        let f = Html::Fragment(vec![
+            Html::Element(div().text("one")),
+            Html::Element(div().text("two")),
+            Html::Element(div().text("three")),
+        ]);
+        let chunks = f.to_chunks();
+        assert_eq!(chunks.len(), 3);
+        let joined = String::from_utf8(chunks.concat()).unwrap();
+        assert_eq!(joined, f.render());
+    }
+
+    #[test]
+    fn test_to_chunks_single_element_one_chunk() {
+        let e = Html::Element(div().text("solo"));
+        let chunks = e.to_chunks();
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(String::from_utf8(chunks[0].clone()).unwrap(), e.render());
     }
 
     #[test]
