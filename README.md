@@ -37,6 +37,14 @@ A template compiler for building type-safe HTML components in Rust, modelled on 
 | Editor support | Stable | tree-sitter grammar + LSP w/ diagnostics, formatting, completion (`@` + `<` + prop-names inside `@X(...)`), hover, go-to-definition |
 | Formatter | Stable | `ruitl fmt [--check]` CLI + LSP `textDocument/formatting`. Idempotent. Preserves leading comments. |
 | Raw-HTML expression | Stable | `{!expr}` inside a template body injects the runtime value as raw HTML (no escaping). |
+| Template inheritance | Stable | `@X(...) { body }` + `{children}` slot. Auto-injects `pub children: Html` on the callee's Props when the slot is used. |
+| Did-you-mean errors | Stable | Codegen validation suggests closest declared component/prop name on typos via Levenshtein. |
+| Parallel compile | Stable | `compile_dir_sibling` fans out with `rayon` behind the `parallel` feature (default on). |
+| Buffer-reuse render | Stable | `Html::render_into(&mut String)`, `render_with_capacity`, `len_hint` for hot request loops. |
+| SSR streaming | Stable | `Html::to_chunks()` splits a top-level `Fragment` for `hyper::Body::wrap_stream`. See `examples/streaming_demo.rs`. |
+| Dev server | Stable (dev + server features) | `ruitl dev` watches `.ruitl`, serves SSE reload at `/ruitl/reload` so browsers auto-refresh. |
+| Testing helpers | Optional (`testing` feature) | `ruitl::testing::{ComponentTestHarness, HtmlAssertion}` + `assert_html_contains!` / `assert_renders_to!`. |
+| AST debug dump | Stable | `ruitl compile --emit-ast` writes a pretty-Debug of the parser AST next to each source. |
 
 See `tests/fixtures/snapshots/*.snap` for canonical codegen output.
 
@@ -832,7 +840,7 @@ cargo build
 
 ### 🚧 Enhancement Opportunities
 
-- [x] Hot reload development mode (`ruitl dev` — restarts cargo + browser WS reload)
+- [x] Hot reload development mode (`ruitl dev` — SSE browser reload; pair with `cargo watch -x run` to restart the app binary)
 - [x] IDE support and syntax highlighting (Zed + VS Code extensions, tree-sitter grammar)
 - [x] Advanced error messages with suggestions (did-you-mean for unknown components/props)
 - [x] Template inheritance (`{children}` slot + `@Card(...) { body }` syntax)

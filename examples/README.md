@@ -27,6 +27,8 @@ Pick your learning goal, open the file. Each entry starts tiny and grows.
 | `for` loops over a `Vec<T>` | [`../tests/fixtures/snapshots/loops.ruitl`](../tests/fixtures/snapshots/loops.ruitl) |
 | `match` expressions with multiple arms | [`../templates/AdvancedFeatures.ruitl`](../templates/AdvancedFeatures.ruitl), [`../tests/fixtures/snapshots/match_arms.ruitl`](../tests/fixtures/snapshots/match_arms.ruitl) |
 | Composition: `@Child(prop = value)` | [`../tests/fixtures/snapshots/composition.ruitl`](../tests/fixtures/snapshots/composition.ruitl), [`../tests/fixtures/composition/UserList.ruitl`](../tests/fixtures/composition/UserList.ruitl) |
+| Children slot: `@Child(...) { body }` + `{children}` | [`../tests/fixtures/snapshots/children.ruitl`](../tests/fixtures/snapshots/children.ruitl), [`../tests/fixtures/composition/CardWithChildren.ruitl`](../tests/fixtures/composition/CardWithChildren.ruitl) |
+| Chunked SSR streaming | [`streaming_demo.rs`](streaming_demo.rs) (hyper `Body::wrap_stream` + `Html::to_chunks`) |
 | Generics `<T: Bound>` | [`../tests/fixtures/snapshots/generics.ruitl`](../tests/fixtures/snapshots/generics.ruitl) |
 | Optional props via `if let Some(...)` | [`syntax_showcase/UserCard.ruitl`](syntax_showcase/UserCard.ruitl), [`demo_templates/DemoButton.ruitl`](demo_templates/DemoButton.ruitl) |
 | Real HTTP server using compiled components | [`server_integration.rs`](server_integration.rs) + [`demo_templates/`](demo_templates/) |
@@ -47,6 +49,7 @@ Run any of these with `cargo run --example <name>`.
   - `/about` — About page with pre-rendered HTML content
   - `/demo` — **Uses compiled `DemoButton` + `DemoUserCard`** from `demo_templates/`. Proves sibling-file integration end-to-end.
   - `/api/users` — JSON endpoint
+- **`streaming_demo`** — Demonstrates chunked SSR. `/big` returns a large document split at top-level `Fragment` children via `Html::to_chunks()` fed into `hyper::Body::wrap_stream`. Observe with `curl --no-buffer http://localhost:3000/big`.
 
 ## Feature coverage matrix
 
@@ -63,20 +66,20 @@ Run any of these with `cargo run --example <name>`.
 | Tuple pattern `for (k, v) in map` | ✓ | parser tests only — no user-facing example yet |
 | `match e { ... }` | ✓ | `templates/AdvancedFeatures.ruitl` |
 | Composition `@Child(prop=val)` | ✓ | `tests/fixtures/composition/UserList.ruitl` |
+| Children slot `@Child(...) { body }` + `{children}` | ✓ | `tests/fixtures/snapshots/children.ruitl`, `tests/fixtures/composition/CardWithChildren.ruitl` |
+| Raw-HTML expression `{!expr}` | ✓ | `tests/fixtures/snapshots/` |
 | Generics `<T: Clone + Debug>` | ✓ | `tests/fixtures/snapshots/generics.ruitl` |
 | Namespaced/hyphenated attrs (`aria-*`, `xmlns:xlink`) | ✓ | parser tests |
 | Import statements | ✓ | `syntax_showcase/*.ruitl` |
 
 ## Known limitations / intentionally not shown
 
-- **No children/slots feature yet.** A component cannot receive arbitrary child HTML (like React's `{children}` or templ's `@Template` blocks). Layout wrappers currently compose by inlining the full inner tree per caller.
-- **Raw HTML from an expression has no short form.** If you need to drop already-safe HTML into a template, precompute a `String` and use `Html::raw(...)` at the Rust boundary — there is no `{!expr}` or similar inside `.ruitl` yet.
 - **Forms, data tables, nav bars** are deliberately absent. They reduce to patterns already shown (elements + attributes + loops) and adding them would pad the cookbook without new pedagogical value. If you hit a concrete ergonomics gap building one, open an issue.
 - **Lifetime generics** `<'a>` are rejected at parse time. Use owned types (`String`, `Vec<T>`) instead.
 
 ## Editor support
 
-`.ruitl` files currently open as plain text in most editors. A tree-sitter
-grammar is planned for v0.3 (syntax highlighting for Neovim / Helix / Zed);
-a full LSP (diagnostics, completion) lands after that. Track progress in
-the root [`README.md`](../README.md#status) status table.
+Syntax highlighting + LSP are shipping. See the root README's
+[Editor support](../README.md#%EF%B8%8F-editor-support) section for the
+four integration crates (`tree-sitter-ruitl`, `ruitl_lsp`,
+`zed-extension-ruitl`, `vscode-extension-ruitl`) and install one-liners.
