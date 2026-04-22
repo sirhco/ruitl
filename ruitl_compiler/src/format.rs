@@ -287,7 +287,11 @@ fn write_node(out: &mut String, ast: &TemplateAst, indent: usize) {
             pad(out, indent);
             out.push_str("}\n");
         }
-        TemplateAst::Component { name, props } => {
+        TemplateAst::Component {
+            name,
+            props,
+            children,
+        } => {
             pad(out, indent);
             out.push('@');
             out.push_str(name);
@@ -298,7 +302,19 @@ fn write_node(out: &mut String, ast: &TemplateAst, indent: usize) {
                 }
                 write_prop_value(out, p);
             }
-            out.push_str(")\n");
+            out.push(')');
+            if let Some(body) = children {
+                out.push_str(" {\n");
+                write_template_body(out, body, indent + 4);
+                pad(out, indent);
+                out.push_str("}\n");
+            } else {
+                out.push('\n');
+            }
+        }
+        TemplateAst::Children => {
+            pad(out, indent);
+            out.push_str("{children}\n");
         }
         TemplateAst::Fragment(_) => {
             write_template_body(out, ast, indent);
@@ -547,5 +563,24 @@ mod tests {
         let out = roundtrip(input);
         // Expect 3 levels of 4-space indentation on the innermost <p>.
         assert!(out.contains("            <p>Hi</p>"));
+    }
+
+    #[test]
+    fn formats_children_slot_and_bodied_invocation() {
+        let input = "component Card { props { title: String, } }\n\
+                     ruitl Card(title: String) { <div>{children}</div> }\n\
+                     component Page { props { msg: String, } }\n\
+                     ruitl Page(msg: String) { @Card(title: \"x\".to_string()) { <p>{msg}</p> } }";
+        let out = roundtrip(input);
+        assert!(
+            out.contains("{children}"),
+            "slot form must round-trip: {out}"
+        );
+        assert!(
+            out.contains("@Card(title: \"x\".to_string()) {"),
+            "bodied @-invocation must round-trip: {out}"
+        );
+        let twice = roundtrip(&out);
+        assert_eq!(out, twice, "formatter must be idempotent");
     }
 }

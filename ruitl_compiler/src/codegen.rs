@@ -236,7 +236,17 @@ impl CodeGenerator {
     fn generate_props_struct(&self, component: &ComponentDef) -> Result<TokenStream> {
         let props_name = format_ident!("{}Props", component.name);
 
-        if component.props.is_empty() {
+        // Does this component's template body reference `{children}`? If so,
+        // auto-emit a `pub children: Html` field on the Props struct — but
+        // only when the user hasn't already declared a `children` prop of
+        // their own. A user-declared `children` stays as-is (useful if they
+        // want a non-`Html` type or a different default), and the
+        // `{children}` slot simply reads whichever field is present.
+        let user_declared_children = component.props.iter().any(|p| p.name == "children");
+        let needs_children =
+            self.component_needs_children(&component.name) && !user_declared_children;
+
+        if component.props.is_empty() && !needs_children {
             return Ok(quote! {
                 pub type #props_name = EmptyProps;
             });
@@ -267,6 +277,12 @@ impl CodeGenerator {
                     // Non-optional field validation could go here
                 });
             }
+        }
+
+        if needs_children {
+            fields.push(quote! {
+                pub children: Html
+            });
         }
 
         let (struct_decl, impl_decl) = if component.generics.is_empty() {
@@ -451,8 +467,18 @@ impl CodeGenerator {
 
             TemplateAst::Match { expression, arms } => self.generate_match_code(expression, arms),
 
-            TemplateAst::Component { name, props } => {
-                self.generate_component_invocation_code(name, props)
+            TemplateAst::Component {
+                name,
+                props,
+                children,
+            } => self.generate_component_invocation_code(name, props, children.as_deref()),
+
+            TemplateAst::Children => {
+                // `{children}` — emit `props.children.clone()`. The owning
+                // component's Props struct is augmented with a
+                // `pub children: Html` field in `generate_props_struct` when
+                // the body contains this variant.
+                Ok(quote! { props.children.clone() })
             }
 
             TemplateAst::Fragment(nodes) => {
@@ -696,7 +722,8 @@ impl CodeGenerator {
             TemplateAst::Text(_)
             | TemplateAst::Expression(_)
             | TemplateAst::RawExpression(_)
-            | TemplateAst::Raw(_) => false,
+            | TemplateAst::Raw(_)
+            | TemplateAst::Children => false,
         }
     }
 
@@ -757,10 +784,21 @@ impl CodeGenerator {
                     Self::collect_idents_rec(&arm.body, out);
                 }
             }
-            TemplateAst::Component { props, .. } => {
+            TemplateAst::Component {
+                props, children, ..
+            } => {
                 for pv in props {
                     scan_idents(&pv.value, out);
                 }
+                if let Some(body) = children {
+                    Self::collect_idents_rec(body, out);
+                }
+            }
+            TemplateAst::Children => {
+                // The slot placeholder reads `props.children`; surface
+                // "children" so the prop-binding pass keeps that binding
+                // alive in the generated render body.
+                out.insert("children".to_string());
             }
             TemplateAst::Fragment(nodes) => {
                 for n in nodes {
@@ -872,6 +910,7 @@ impl CodeGenerator {
         &self,
         name: &str,
         props: &[PropValue],
+        children: Option<&TemplateAst>,
     ) -> Result<TokenStream> {
         let component_ident = format_ident!("{}", name);
         let props_ident = format_ident!("{}Props", name);
@@ -889,6 +928,22 @@ impl CodeGenerator {
             });
         }
 
+        // Feed the body block into the callee's auto-injected `children` prop.
+        // If the call site has a body, always emit `children: <rendered>`.
+        // If there is no body but the callee is defined locally and its
+        // template references `{children}`, emit `children: Html::Empty` so
+        // the generated struct literal is complete.
+        if let Some(body) = children {
+            let body_code = self.generate_ast_code(body)?;
+            prop_assignments.push(quote! {
+                children: #body_code
+            });
+        } else if self.component_needs_children(name) {
+            prop_assignments.push(quote! {
+                children: Html::Empty
+            });
+        }
+
         Ok(quote! {
             {
                 let component = #component_ident;
@@ -898,6 +953,55 @@ impl CodeGenerator {
                 component.render(&props, context)?
             }
         })
+    }
+
+    /// Does the named component's template body reference `{children}`? If
+    /// so, its generated Props struct carries a `pub children: Html` field
+    /// and every call site must populate it. Only inspects components defined
+    /// in the current file — out-of-file callees are on their own.
+    fn component_needs_children(&self, name: &str) -> bool {
+        self.file
+            .templates
+            .iter()
+            .find(|t| t.name == name)
+            .map(|t| Self::body_has_children_slot(&t.body))
+            .unwrap_or(false)
+    }
+
+    /// Recursively checks whether `ast` contains a `TemplateAst::Children`
+    /// node anywhere in its subtree. Used to decide whether a component's
+    /// Props struct needs the auto-injected `children: Html` field.
+    fn body_has_children_slot(ast: &TemplateAst) -> bool {
+        match ast {
+            TemplateAst::Children => true,
+            TemplateAst::Element { children, .. } => {
+                children.iter().any(Self::body_has_children_slot)
+            }
+            TemplateAst::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                Self::body_has_children_slot(then_branch)
+                    || else_branch
+                        .as_deref()
+                        .map(Self::body_has_children_slot)
+                        .unwrap_or(false)
+            }
+            TemplateAst::For { body, .. } => Self::body_has_children_slot(body),
+            TemplateAst::Match { arms, .. } => arms
+                .iter()
+                .any(|arm| Self::body_has_children_slot(&arm.body)),
+            TemplateAst::Fragment(nodes) => nodes.iter().any(Self::body_has_children_slot),
+            TemplateAst::Component { children, .. } => children
+                .as_deref()
+                .map(Self::body_has_children_slot)
+                .unwrap_or(false),
+            TemplateAst::Text(_)
+            | TemplateAst::Expression(_)
+            | TemplateAst::RawExpression(_)
+            | TemplateAst::Raw(_) => false,
+        }
     }
 }
 
@@ -1088,7 +1192,7 @@ mod tests {
         ];
 
         let result = generator
-            .generate_component_invocation_code("Button", &props)
+            .generate_component_invocation_code("Button", &props, None)
             .unwrap();
 
         let code = result.to_string();

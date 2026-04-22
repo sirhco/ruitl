@@ -1,0 +1,98 @@
+---
+source: tests/codegen_snapshots.rs
+expression: out
+---
+use ruitl::prelude::*;
+use ruitl::html::*;
+#[derive(Debug, Clone)]
+pub struct CardProps {
+    pub title: String,
+    pub children: Html,
+}
+impl ComponentProps for CardProps {
+    fn validate(&self) -> Result<()> {
+        Ok(())
+    }
+}
+#[derive(Debug)]
+pub struct Card;
+impl Component for Card {
+    type Props = CardProps;
+    #[allow(unused_variables)]
+    fn render(&self, props: &Self::Props, _context: &ComponentContext) -> Result<Html> {
+        let title = &props.title;
+        Ok(
+            Html::Element(
+                HtmlElement::new("div")
+                    .attr("class", "card")
+                    .child(
+                        Html::Element(
+                            HtmlElement::new("h2")
+                                .child(Html::text(&format!("{}", title))),
+                        ),
+                    )
+                    .child(
+                        Html::Element(
+                            HtmlElement::new("div")
+                                .attr("class", "body")
+                                .child(props.children.clone()),
+                        ),
+                    ),
+            ),
+        )
+    }
+}
+#[derive(Debug, Clone)]
+pub struct OuterProps {
+    pub heading: String,
+}
+impl ComponentProps for OuterProps {
+    fn validate(&self) -> Result<()> {
+        Ok(())
+    }
+}
+#[derive(Debug)]
+pub struct Outer;
+impl Component for Outer {
+    type Props = OuterProps;
+    #[allow(unused_variables)]
+    fn render(&self, props: &Self::Props, context: &ComponentContext) -> Result<Html> {
+        let heading = &props.heading;
+        Ok(
+            Html::Element(
+                HtmlElement::new("section")
+                    .child(
+                        Html::Element(
+                            HtmlElement::new("h1")
+                                .child(Html::text(&format!("{}", heading))),
+                        ),
+                    )
+                    .child({
+                        let component = Card;
+                        let props = CardProps {
+                            title: "Top".to_string(),
+                            children: Html::fragment(
+                                vec![
+                                    Html::Element(HtmlElement::new("p")
+                                    .child(Html::text("Top body"))), { let component = Card; let
+                                    props = CardProps { title : "Nested".to_string(), children :
+                                    Html::Element(HtmlElement::new("em")
+                                    .child(Html::text("Nested body"))) }; component.render(&
+                                    props, context) ? }
+                                ],
+                            ),
+                        };
+                        component.render(&props, context)?
+                    })
+                    .child({
+                        let component = Card;
+                        let props = CardProps {
+                            title: "Empty".to_string(),
+                            children: Html::Empty,
+                        };
+                        component.render(&props, context)?
+                    }),
+            ),
+        )
+    }
+}
