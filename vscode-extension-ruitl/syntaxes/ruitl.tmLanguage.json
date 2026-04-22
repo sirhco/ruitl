@@ -1,0 +1,100 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "RUITL",
+  "scopeName": "source.ruitl",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#keywords" },
+    { "include": "#component-decl" },
+    { "include": "#template-decl" },
+    { "include": "#component-invocation" },
+    { "include": "#expression" },
+    { "include": "#html-tag" },
+    { "include": "#strings" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.ruitl",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.ruitl",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.ruitl",
+          "match": "\\b(component|ruitl|props|import|if|else|for|in|match)\\b"
+        }
+      ]
+    },
+    "component-decl": {
+      "match": "\\b(component)\\s+([A-Z][A-Za-z0-9_]*)",
+      "captures": {
+        "1": { "name": "keyword.control.ruitl" },
+        "2": { "name": "entity.name.class.ruitl" }
+      }
+    },
+    "template-decl": {
+      "match": "\\b(ruitl)\\s+([A-Z][A-Za-z0-9_]*)",
+      "captures": {
+        "1": { "name": "keyword.control.ruitl" },
+        "2": { "name": "entity.name.function.ruitl" }
+      }
+    },
+    "component-invocation": {
+      "match": "@([A-Z][A-Za-z0-9_]*)",
+      "captures": {
+        "1": { "name": "entity.name.class.ruitl" }
+      }
+    },
+    "expression": {
+      "begin": "\\{",
+      "end": "\\}",
+      "name": "meta.embedded.block.rust",
+      "patterns": [
+        { "include": "source.rust" }
+      ]
+    },
+    "html-tag": {
+      "begin": "(<)([a-zA-Z][a-zA-Z0-9-]*)",
+      "beginCaptures": {
+        "1": { "name": "punctuation.definition.tag.begin.html" },
+        "2": { "name": "entity.name.tag.html" }
+      },
+      "end": "(/?>)",
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.tag.end.html" }
+      },
+      "patterns": [
+        {
+          "name": "entity.other.attribute-name.html",
+          "match": "\\b[a-zA-Z-]+\\b"
+        },
+        {
+          "name": "string.quoted.double.html",
+          "begin": "\"",
+          "end": "\""
+        },
+        { "include": "#expression" }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.ruitl",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.ruitl",
+          "match": "\\\\."
+        }
+      ]
+    }
+  }
+}

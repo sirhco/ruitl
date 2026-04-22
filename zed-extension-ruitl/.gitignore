@@ -1,0 +1,12 @@
+# Zed's dev-extension install copies the grammar's source tree into
+# grammars/<id>/ locally for building. It's a build cache; don't commit.
+grammars/*/
+grammars/*.wasm
+
+# Rust + wasm build output
+target/
+extension.wasm
+
+# The root repo .gitignore excludes Cargo.lock for libraries; Zed
+# extensions are binary WASM artifacts so we want a locked build.
+!Cargo.lock
