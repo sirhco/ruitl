@@ -4,21 +4,21 @@
 [![Documentation](https://docs.rs/ruitl/badge.svg)](https://docs.rs/ruitl)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE)
 
-> **⚠️ Status: Pre-release (v0.2.0)** — Core feature set stable. Breaking changes possible before v1.0 while SSG and ergonomics settle.
+> **Status: Pre-release (v0.2.0)** — Core feature set stable. Breaking changes possible before v1.0 while SSG and ergonomics settle.
 
 A template compiler for building type-safe HTML components in Rust, modelled on Go's [templ](https://templ.guide). RUITL compiles `.ruitl` template files into sibling `*_ruitl.rs` files (committed to source control, reviewable in diffs) and links them into your binary at build time.
 
-## ✨ Key Features
+## Key features
 
-- 🔄 **Template Compilation**: `.ruitl` → sibling `*_ruitl.rs` (templ-style `_templ.go` convention)
-- 🦀 **Type Safety**: Generated components with full Rust type checking
-- ⚡ **Zero Runtime Parsing**: Templates compiled away, pure Rust at render
-- 🔧 **Cargo Integration**: `build.rs` and `ruitl` CLI share one compiler
-- 📦 **Component Props**: Type-safe props with validation, defaults, generics
-- ♻️ **Incremental Builds**: Hash-based skip when `.ruitl` source is unchanged
-- 👀 **Watch Mode**: `ruitl compile --watch` auto-recompiles on save
-- 🎯 **HTML Generation**: Clean, deterministic, attribute-order-stable output
-- 🚫 **No JavaScript**: Pure Rust, server-side rendering focus
+- **Template compilation**: `.ruitl` → sibling `*_ruitl.rs` (templ-style `_templ.go` convention)
+- **Type safety**: Generated components with full Rust type checking
+- **Zero runtime parsing**: Templates compiled away, pure Rust at render
+- **Cargo integration**: `build.rs` and `ruitl` CLI share one compiler
+- **Component props**: Type-safe props with validation, defaults, generics
+- **Incremental builds**: Hash-based skip when `.ruitl` source is unchanged
+- **Watch mode**: `ruitl compile --watch` auto-recompiles on save
+- **HTML generation**: Clean, deterministic, attribute-order-stable output
+- **No JavaScript**: Pure Rust, server-side rendering focus
 
 ## Status
 
@@ -51,7 +51,7 @@ See `tests/fixtures/snapshots/*.snap` for canonical codegen output.
 **Browse the gallery:** [`examples/README.md`](examples/README.md) indexes every
 `.ruitl` fixture and example binary by learning goal.
 
-## 🚀 Quick Start
+## Quick start
 
 You can get started with RUITL in three ways:
 
@@ -167,9 +167,9 @@ fn main() -> Result<()> {
 }
 ```
 
-## 🏗️ Project Scaffolding
+## Project scaffolding
 
-RUITL includes a powerful project scaffolder that creates complete project structures with examples and server implementations.
+`ruitl scaffold` emits a ready-to-build project skeleton with optional server and example components.
 
 ### Creating a New Project
 
@@ -240,7 +240,7 @@ When using `--with-server`, the scaffolder generates:
 - **Component Integration**: Server-side rendering with RUITL components
 - **Static Assets**: CSS and JavaScript served efficiently
 - **Error Handling**: 404 pages and error responses
-- **Development Ready**: Ready to run with `cargo run`
+- Runs immediately with `cargo run`
 
 Example server routes:
 - `http://localhost:3000/` - Home page with welcome content
@@ -325,9 +325,9 @@ The scaffolder automatically configures appropriate dependencies:
 - `hyper` - HTTP server
 - `serde_json` - JSON handling
 
-## 🖥️ CLI Commands
+## CLI commands
 
-RUITL provides a comprehensive command-line interface for project management and template compilation.
+The `ruitl` binary drives template compilation, project scaffolding, formatting, and the dev server.
 
 ### Installation
 
@@ -535,7 +535,7 @@ ruitl compile --src-dir ./my-templates
 ruitl compile --watch --verbose
 ```
 
-## 📝 Template Syntax
+## Template syntax
 
 ### Component Definitions
 
@@ -620,9 +620,9 @@ in the same template are allowed; each expands to a clone of the slot.
 The bare identifier `{children}` is the slot placeholder — `{my.children}`
 or any dotted path stays a normal expression.
 
-## ⚙️ Build Process
+## Build process
 
-RUITL integrates seamlessly with Cargo's build system:
+`build.rs` compiles any `.ruitl` files it finds under `src/templates/` and `templates/` on `cargo build`:
 
 ### Project Structure
 
@@ -685,7 +685,7 @@ impl Component for Button {
 }
 ```
 
-## 🧪 Examples
+## Examples
 
 ### Scaffolded Project Examples
 
@@ -796,7 +796,7 @@ cargo run --example template_compiler_demo
 - Build process workflow
 - Component usage patterns
 
-## 🛠️ Development Workflow
+## Development workflow
 
 1. **Write Templates**: Create `.ruitl` files in `templates/` directory
 2. **Build**: Run `cargo build` to compile templates
@@ -817,9 +817,9 @@ cargo build
 # let html = hello.render(&props, &context)?;
 ```
 
-## 📊 Current Status
+## Current status
 
-### ✅ Working Features
+### Working features
 
 - [x] Build script template compilation
 - [x] CLI template compilation
@@ -838,7 +838,7 @@ cargo build
 - [x] Boolean and primitive type operations
 - [x] Complex nested template structures
 
-### 🚧 Enhancement Opportunities
+### Enhancement opportunities
 
 - [x] Hot reload development mode (`ruitl dev` — SSE browser reload; pair with `cargo watch -x run` to restart the app binary)
 - [x] IDE support and syntax highlighting (Zed + VS Code extensions, tree-sitter grammar)
@@ -846,7 +846,7 @@ cargo build
 - [x] Template inheritance (`{children}` slot + `@Card(...) { body }` syntax)
 - [x] Performance optimizations (rayon parallel compile, buffer-reuse render API, criterion benches)
 
-### 🎯 Roadmap
+### Roadmap
 
 - [x] ~~Advanced template features~~ **COMPLETE**
 - [x] ~~Hot reload development mode~~ **COMPLETE** (`ruitl dev`)
@@ -857,7 +857,7 @@ cargo build
 - [x] ~~Component testing utilities~~ **COMPLETE** (`ruitl::testing`, `testing` feature)
 - [x] ~~Template debugging tools~~ **PARTIAL** (`ruitl compile --emit-ast`)
 
-## 🔧 Configuration
+## Configuration
 
 Configure template compilation in your `Cargo.toml`:
 
@@ -867,7 +867,7 @@ template_dir = "templates"
 generated_dir = "generated"
 ```
 
-## 🖋️ Editor support
+## Editor support
 
 Four editor-integration crates ship alongside the compiler:
 
@@ -883,35 +883,33 @@ Roadmap beyond this release:
 
 Fallback if you don't wire the LSP: enable watch mode (`ruitl compile --watch`) in one terminal and let the parser+codegen errors from the watcher guide you.
 
-## 🤔 FAQ
+## FAQ
 
 **Q: How does RUITL compare to other templating solutions?**
-A: RUITL compiles templates to native Rust code at build time, providing zero runtime overhead and full type safety.
+A: RUITL compiles templates to Rust code at build time, so there is no runtime parser and prop types are checked by `rustc`.
 
 **Q: Can I use existing Rust code in templates?**
-A: Yes! Templates support arbitrary Rust expressions and function calls.
+A: Yes. Expressions inside `{...}` are arbitrary Rust — function calls, method chains, closures.
 
 **Q: Is RUITL production ready?**
-A: Yes! All core and advanced features are working, including conditionals, loops, and component composition. Ready for production use.
+A: v0.2 is pre-release. Core and advanced features (conditionals, loops, composition, `{children}`, generics) are stable; breaking changes are still possible before v1.0 while the static-site story and ergonomics settle.
 
 **Q: How does performance compare to runtime templating?**
-A: Since templates compile to native Rust code, performance is excellent with no template parsing overhead.
+A: Templates compile to native Rust with no per-request parser. Render is a tree walk writing escaped text into a `Write` target.
 
-## 🤝 Contributing
+## Contributing
 
-We welcome contributions! Areas where help is needed:
+Contributions are welcome. Current priorities:
 
-- Hot reload development mode
-- IDE support and syntax highlighting
-- Improving error messages and suggestions
-- Performance optimizations
-- Writing documentation and guides
-- Creating advanced examples
-- Template testing utilities
+- Static-site generation (`ruitl build` subcommand, planned).
+- Marketplace publishing for the Zed and VS Code extensions.
+- npm release for the `tree-sitter-ruitl` grammar.
+- Rust-aware completion inside `{...}` expressions (needs a rust-analyzer bridge).
+- Additional real-world examples beyond `server_integration` and `streaming_demo`.
 
-See [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for detailed status.
+See the status table near the top for what already ships.
 
-## 📝 License
+## License
 
 Licensed under either of
 
@@ -920,14 +918,11 @@ Licensed under either of
 
 at your option.
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
-- Inspired by [Templ](https://templ.guide/) for Go
-- Built with the amazing Rust ecosystem
-- Thanks to early contributors and testers
+- Inspired by [templ](https://templ.guide/) for Go.
+- Thanks to early contributors and testers.
 
 ---
 
-**RUITL: Compile-time templates for Rust 🦀**
-
-*Want to contribute? Check out our [issues](https://github.com/sirhco/ruitl/issues) or start with the [implementation status](IMPLEMENTATION_STATUS.md).*
+Contribute via [issues](https://github.com/sirhco/ruitl/issues).
