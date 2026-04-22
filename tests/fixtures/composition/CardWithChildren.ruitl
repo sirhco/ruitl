@@ -1,0 +1,31 @@
+// End-to-end fixture for the `{children}` slot + `@X() { body }` syntax.
+//
+// CardWithChildren renders a wrapper <div> around its body block. The caller
+// (Shell) drops a `<p>` inside via `@CardWithChildren(...) { <p/> }`.
+
+component CardWithChildren {
+    props {
+        title: String,
+    }
+}
+
+ruitl CardWithChildren(title: String) {
+    <div class="card">
+        <h3>{title}</h3>
+        <div class="inner">{children}</div>
+    </div>
+}
+
+component Shell {
+    props {
+        msg: String,
+    }
+}
+
+ruitl Shell(msg: String) {
+    <main>
+        @CardWithChildren(title: "Hi".to_string()) {
+            <p>{msg}</p>
+        }
+    </main>
+}

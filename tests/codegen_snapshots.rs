@@ -49,3 +49,4 @@ snap!(loops);
 snap!(match_arms);
 snap!(composition);
 snap!(generics);
+snap!(children);

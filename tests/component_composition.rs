@@ -17,6 +17,8 @@
 use ruitl_compiler::{generate, parse_str, TemplateAst};
 
 const USER_LIST: &str = include_str!("fixtures/composition/UserList.ruitl");
+const CARD_WITH_CHILDREN: &str =
+    include_str!("fixtures/composition/CardWithChildren.ruitl");
 
 #[test]
 fn user_list_parses_with_composition_node() {
@@ -27,12 +29,21 @@ fn user_list_parses_with_composition_node() {
     let body = &file.templates[0].body;
     let composition = find_component_node(body)
         .expect("@UserCard composition node must exist somewhere in the body");
-    let TemplateAst::Component { name, props } = composition else {
+    let TemplateAst::Component {
+        name,
+        props,
+        children,
+    } = composition
+    else {
         unreachable!()
     };
     assert_eq!(name, "UserCard");
     let prop_names: Vec<&str> = props.iter().map(|p| p.name.as_str()).collect();
     assert_eq!(prop_names, vec!["name", "email", "role"]);
+    assert!(
+        children.is_none(),
+        "UserList invocation has no body block"
+    );
 }
 
 #[test]
@@ -59,6 +70,39 @@ fn user_list_codegen_emits_valid_invocation() {
     syn::parse_file(&code).unwrap_or_else(|e| {
         panic!("generated code is not valid Rust: {e}\n--- CODE ---\n{code}")
     });
+}
+
+#[test]
+fn card_with_children_codegen_auto_injects_children_field() {
+    let file = parse_str(CARD_WITH_CHILDREN).expect("CardWithChildren.ruitl must parse");
+    let code = generate(file).expect("codegen must succeed");
+
+    // The Card's Props struct should carry an auto-injected `children: Html` field.
+    let normalized: String = code.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        normalized.contains("pub children : Html")
+            || normalized.contains("pub children: Html"),
+        "CardWithChildrenProps must carry `pub children: Html`; got:\n{code}"
+    );
+
+    // The Shell's body-block invocation must feed a value into `children:` —
+    // codegen picks `Html::fragment(...)` for multi-child bodies and a direct
+    // `Html::Element(...)` for a single element. Accept both.
+    assert!(
+        code.contains("children : Html") || code.contains("children: Html"),
+        "Shell's @-call with body must populate the `children` field; got:\n{code}"
+    );
+
+    // The slot placeholder `{children}` should expand to a clone of props.children.
+    assert!(
+        code.contains("props . children . clone")
+            || code.contains("props.children.clone"),
+        "`{{children}}` slot must compile to props.children.clone(); got:\n{code}"
+    );
+
+    // Must be syntactically valid Rust.
+    syn::parse_file(&code)
+        .unwrap_or_else(|e| panic!("generated code is not valid Rust: {e}\n--- CODE ---\n{code}"));
 }
 
 fn find_component_node(node: &TemplateAst) -> Option<&TemplateAst> {

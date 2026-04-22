@@ -1,0 +1,39 @@
+// Exercises the `{children}` slot + `@Component() { body }` call syntax.
+//
+// Card has no user-declared props beyond `title` and references `{children}`
+// in its body; codegen must auto-inject `pub children: Html` into CardProps.
+// Outer passes a body block to Card, nests another bodied Card inside, and
+// also invokes Card without a body to verify the `children: Html::Empty`
+// fallback.
+
+component Card {
+    props {
+        title: String,
+    }
+}
+
+ruitl Card(title: String) {
+    <div class="card">
+        <h2>{title}</h2>
+        <div class="body">{children}</div>
+    </div>
+}
+
+component Outer {
+    props {
+        heading: String,
+    }
+}
+
+ruitl Outer(heading: String) {
+    <section>
+        <h1>{heading}</h1>
+        @Card(title: "Top".to_string()) {
+            <p>Top body</p>
+            @Card(title: "Nested".to_string()) {
+                <em>Nested body</em>
+            }
+        }
+        @Card(title: "Empty".to_string())
+    </section>
+}
