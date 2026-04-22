@@ -43,6 +43,12 @@ pub enum Commands {
         /// Watch for changes and recompile
         #[arg(short, long)]
         watch: bool,
+        /// Dump the parser AST for each compiled file to a sibling
+        /// `<stem>.ast.txt`. Useful when diagnosing why codegen produces
+        /// unexpected output — you can see exactly what the parser thinks
+        /// your template means. Skips codegen when set.
+        #[arg(long)]
+        emit_ast: bool,
     },
     /// Format one or more `.ruitl` files in place (or a whole directory).
     /// With `--check`, exits with a non-zero status when any file is not
@@ -122,8 +128,16 @@ impl CliApp {
     /// Run the CLI application
     pub async fn run(&self, command: Commands) -> Result<()> {
         match command {
-            Commands::Compile { src_dir, watch } => {
-                self.compile_templates(&src_dir, watch).await
+            Commands::Compile {
+                src_dir,
+                watch,
+                emit_ast,
+            } => {
+                if emit_ast {
+                    self.emit_ast(&src_dir)
+                } else {
+                    self.compile_templates(&src_dir, watch).await
+                }
             }
             Commands::Fmt { paths, check } => self.fmt_paths(&paths, check),
             Commands::ValidateRoutes { config } => self.validate_routes(&config),
@@ -182,6 +196,51 @@ impl CliApp {
             self.run_watch_loop(src_dir, &compile_once)?;
         }
 
+        Ok(())
+    }
+
+    /// Parse every `.ruitl` file under `src_dir` and write its AST in
+    /// human-readable `{:#?}` form to a sibling `<stem>.ast.txt`. Skips
+    /// codegen entirely — purely a debugging aid for authors diagnosing
+    /// why a template parses in an unexpected shape.
+    fn emit_ast(&self, src_dir: &Path) -> Result<()> {
+        if !src_dir.exists() {
+            return Err(RuitlError::config(format!(
+                "Source directory '{}' does not exist",
+                src_dir.display()
+            )));
+        }
+
+        self.log_info(&format!(
+            "Dumping AST for .ruitl files in {}",
+            src_dir.display()
+        ));
+
+        let mut count = 0usize;
+        for entry in walkdir::WalkDir::new(src_dir)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            let path = entry.path();
+            if !path.is_file() || path.extension().map(|e| e != "ruitl").unwrap_or(true) {
+                continue;
+            }
+            let src = fs::read_to_string(path)
+                .map_err(|e| RuitlError::generic(format!("Read {}: {}", path.display(), e)))?;
+            let ast = ruitl_compiler::parse_str(&src)
+                .map_err(|e| RuitlError::generic(format!("Parse {}: {}", path.display(), e)))?;
+            let dump = format!("// AST dump for {}\n\n{:#?}\n", path.display(), ast);
+            let out_path = path.with_extension("ast.txt");
+            fs::write(&out_path, dump).map_err(|e| {
+                RuitlError::generic(format!("Write {}: {}", out_path.display(), e))
+            })?;
+            if self.verbose {
+                self.log_info(&format!("Wrote {}", out_path.display().to_string().green()));
+            }
+            count += 1;
+        }
+
+        self.log_success(&format!("✓ Dumped AST for {} templates", count));
         Ok(())
     }
 
