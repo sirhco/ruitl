@@ -107,6 +107,9 @@ server = ["dep:hyper", "dep:hyper-tls", "tokio/rt-multi-thread"]
 static = []
 dev = ["dep:hotwatch", "dep:notify"]
 minify = ["dep:minify-html"]
+# `testing` exposes `ruitl::testing` (harness + html assertions + macros).
+# Off by default so release builds don't carry test helpers.
+testing = []
 
 [profile.release]
 opt-level = 3

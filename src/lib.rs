@@ -47,6 +47,14 @@ pub mod config;
 pub mod error;
 pub mod html;
 
+/// Test-support helpers (`ComponentTestHarness`, `HtmlAssertion`,
+/// `assert_html_contains!`, `assert_renders_to!`). Feature-gated so they
+/// don't bloat release binaries — consumers enable with
+/// `features = ["testing"]` in their `[dev-dependencies]`. Always available
+/// inside this crate's own tests.
+#[cfg(any(test, feature = "testing"))]
+pub mod testing;
+
 /// Parser AST and tokenizer — re-exported from the shared `ruitl_compiler` crate.
 pub use ruitl_compiler::parser;
 /// Template → Rust code generator — re-exported from the shared `ruitl_compiler` crate.
