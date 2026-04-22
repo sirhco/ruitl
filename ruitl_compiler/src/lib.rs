@@ -10,6 +10,7 @@ pub mod codegen;
 pub mod error;
 pub mod format;
 pub mod parser;
+pub mod suggest;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -109,21 +110,62 @@ fn extract_hash(content: &str) -> Option<&str> {
 /// and re-exports each compiled module, so consumers can `mod templates;`.
 /// Returns the list of written output paths.
 pub fn compile_dir_sibling(dir: &Path) -> Result<Vec<PathBuf>> {
-    let mut outputs = Vec::new();
     if !dir.exists() {
-        return Ok(outputs);
+        return Ok(Vec::new());
     }
-    let mut module_stems: Vec<String> = Vec::new();
-    for entry in walkdir::WalkDir::new(dir).into_iter().filter_map(|e| e.ok()) {
-        let path = entry.path();
-        if path.is_file() && path.extension().map(|e| e == "ruitl").unwrap_or(false) {
-            let out = compile_file_sibling(path)?;
-            if let Some(stem) = out.file_stem().and_then(|s| s.to_str()) {
-                module_stems.push(stem.to_string());
+    // Collect `.ruitl` paths first so the expensive parse+codegen step can
+    // fan out across threads. `walkdir` is single-threaded by construction.
+    let inputs: Vec<PathBuf> = walkdir::WalkDir::new(dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            e.path().is_file()
+                && e.path().extension().map(|x| x == "ruitl").unwrap_or(false)
+        })
+        .map(|e| e.path().to_path_buf())
+        .collect();
+
+    // Fan-out: each file writes to a distinct `<stem>_ruitl.rs` output, so
+    // there is no write contention. Errors from one file don't short-circuit
+    // the others — collect them all, then report the first so CI logs are
+    // deterministic. With `parallel` off (rayon absent) this reduces to a
+    // plain `iter()`.
+    let results: Vec<Result<PathBuf>> = {
+        #[cfg(feature = "parallel")]
+        {
+            use rayon::prelude::*;
+            inputs
+                .par_iter()
+                .map(|p| compile_file_sibling(p))
+                .collect()
+        }
+        #[cfg(not(feature = "parallel"))]
+        {
+            inputs.iter().map(|p| compile_file_sibling(p)).collect()
+        }
+    };
+
+    let mut outputs = Vec::with_capacity(results.len());
+    let mut first_err: Option<CompileError> = None;
+    for r in results {
+        match r {
+            Ok(p) => outputs.push(p),
+            Err(e) => {
+                if first_err.is_none() {
+                    first_err = Some(e);
+                }
             }
-            outputs.push(out);
         }
     }
+    if let Some(e) = first_err {
+        return Err(e);
+    }
+
+    let mut module_stems: Vec<String> = outputs
+        .iter()
+        .filter_map(|o| o.file_stem().and_then(|s| s.to_str()).map(String::from))
+        .collect();
+    module_stems.sort();
     if !module_stems.is_empty() {
         write_sibling_mod_file(dir, &module_stems)?;
     }

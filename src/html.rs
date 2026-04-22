@@ -268,6 +268,98 @@ impl Html {
         maybe_minify(output)
     }
 
+    /// Render into a caller-supplied buffer so hot loops (hyper handlers,
+    /// SSG crawlers) can reuse a single allocation across many renders.
+    /// The buffer is **appended to** — callers who want a fresh payload
+    /// should `buf.clear()` beforehand. Minification runs after the write
+    /// when the `minify` feature is on, identical to `Html::render`.
+    pub fn render_into(&self, buf: &mut String) -> Result<()> {
+        let pre_len = buf.len();
+        self.render_to(buf)?;
+        #[cfg(feature = "minify")]
+        {
+            let written = buf.split_off(pre_len);
+            buf.push_str(&maybe_minify(written));
+        }
+        #[cfg(not(feature = "minify"))]
+        {
+            let _ = pre_len;
+        }
+        Ok(())
+    }
+
+    /// Allocate with a given capacity up-front, then render. Useful when the
+    /// caller has a tighter size estimate than `Html::len_hint` can produce
+    /// — for instance, a cached prior-render length.
+    pub fn render_with_capacity(&self, capacity: usize) -> String {
+        let mut s = String::with_capacity(capacity);
+        let _ = self.render_to(&mut s);
+        maybe_minify(s)
+    }
+
+    /// Cheap lower-bound estimate of the rendered byte length, used to
+    /// pre-size `String` buffers. Walks the tree once and sums a rough
+    /// approximation of tag + attribute + child sizes. Underestimates mean
+    /// one extra realloc during rendering; overestimates waste a bit of
+    /// memory. Both are fine — this is a heuristic, not a contract.
+    pub fn len_hint(&self) -> usize {
+        match self {
+            Html::Text(s) | Html::Raw(s) => s.len(),
+            Html::Element(e) => {
+                let attrs: usize = e
+                    .attributes
+                    .iter()
+                    .map(|(k, v)| {
+                        k.len()
+                            + match v {
+                                HtmlAttribute::Value(s) => s.len() + 4, // `="…" `
+                                HtmlAttribute::Boolean => 1,
+                                HtmlAttribute::List(items) => {
+                                    items.iter().map(|s| s.len() + 1).sum::<usize>() + 3
+                                }
+                            }
+                    })
+                    .sum();
+                let children: usize = e.children.iter().map(|c| c.len_hint()).sum();
+                // Tag open + close = `<tag></tag>` ≈ 5 + 2*tag.len().
+                e.tag.len() * 2 + 5 + attrs + children
+            }
+            Html::Fragment(children) => children.iter().map(|c| c.len_hint()).sum(),
+            Html::Empty => 0,
+        }
+    }
+
+    /// Split rendering into chunks aligned to top-level `Fragment` children,
+    /// so a caller can stream them over an HTTP response body without holding
+    /// the whole document in memory at once. For non-`Fragment` inputs this
+    /// yields exactly one chunk (identical to `render()`). Each returned
+    /// `Vec<u8>` is independently written (same encoding rules as `render_to`),
+    /// so the concatenation equals `render()`.
+    ///
+    /// Typical usage with `hyper::Body::wrap_stream`:
+    /// ```ignore
+    /// let chunks = html.to_chunks();
+    /// let stream = futures::stream::iter(chunks.into_iter().map(Ok::<_, std::io::Error>));
+    /// hyper::Body::wrap_stream(stream)
+    /// ```
+    pub fn to_chunks(&self) -> Vec<Vec<u8>> {
+        match self {
+            Html::Fragment(children) if !children.is_empty() => children
+                .iter()
+                .map(|c| {
+                    let mut s = String::with_capacity(c.len_hint());
+                    let _ = c.render_to(&mut s);
+                    s.into_bytes()
+                })
+                .collect(),
+            _ => {
+                let mut s = String::with_capacity(self.len_hint());
+                let _ = self.render_to(&mut s);
+                vec![s.into_bytes()]
+            }
+        }
+    }
+
     /// Render the HTML to a writer
     pub fn render_to<W: Write>(&self, writer: &mut W) -> Result<()> {
         match self {
@@ -631,6 +723,56 @@ mod tests {
         let element = div().class("test").text("Hello, world!");
         let html = element.render();
         assert_eq!(html, r#"<div class="test">Hello, world!</div>"#);
+    }
+
+    #[test]
+    fn test_render_into_reuses_buffer() {
+        let elem = Html::Element(div().text("one"));
+        let mut buf = String::from("prefix:");
+        elem.render_into(&mut buf).unwrap();
+        assert_eq!(buf, "prefix:<div>one</div>");
+
+        // Same buffer, cleared, second render
+        buf.clear();
+        let elem2 = Html::Element(div().text("two"));
+        elem2.render_into(&mut buf).unwrap();
+        assert_eq!(buf, "<div>two</div>");
+    }
+
+    #[test]
+    fn test_render_with_capacity_matches_render() {
+        let elem = Html::Element(div().class("x").child(Html::text("hi")));
+        let a = elem.render();
+        let b = elem.render_with_capacity(elem.len_hint());
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn test_len_hint_non_zero_for_non_empty() {
+        let elem = Html::Element(div().child(Html::text("hello")));
+        assert!(elem.len_hint() > 0);
+        assert_eq!(Html::Empty.len_hint(), 0);
+    }
+
+    #[test]
+    fn test_to_chunks_splits_top_level_fragment() {
+        let f = Html::Fragment(vec![
+            Html::Element(div().text("one")),
+            Html::Element(div().text("two")),
+            Html::Element(div().text("three")),
+        ]);
+        let chunks = f.to_chunks();
+        assert_eq!(chunks.len(), 3);
+        let joined = String::from_utf8(chunks.concat()).unwrap();
+        assert_eq!(joined, f.render());
+    }
+
+    #[test]
+    fn test_to_chunks_single_element_one_chunk() {
+        let e = Html::Element(div().text("solo"));
+        let chunks = e.to_chunks();
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(String::from_utf8(chunks[0].clone()).unwrap(), e.render());
     }
 
     #[test]

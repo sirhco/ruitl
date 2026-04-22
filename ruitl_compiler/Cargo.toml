@@ -17,3 +17,13 @@ syn = { version = "2.0", features = ["full"] }
 thiserror = "1.0"
 walkdir = "2.3"
 md5 = "0.7"
+strsim = "0.11"
+rayon = { version = "1.10", optional = true }
+
+[features]
+default = ["parallel"]
+# `parallel` switches `compile_dir_sibling` to a rayon-backed par_iter. Each
+# file writes to a distinct output path so there is no contention; disabling
+# this feature keeps compile order strictly sequential (useful when profiling
+# the single-thread path or on hosts that don't love rayon).
+parallel = ["dep:rayon"]

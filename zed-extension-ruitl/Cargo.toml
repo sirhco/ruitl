@@ -1,0 +1,18 @@
+[package]
+name = "zed_ruitl"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Zed extensions compile to standalone WASM. The extension is intentionally
+# NOT part of the outer Cargo workspace because it targets
+# `wasm32-wasip1` with its own lockfile; `[workspace]` below makes Cargo
+# treat this directory as a standalone project.
+[workspace]
+
+[lib]
+path = "src/ruitl.rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+zed_extension_api = "0.2.0"

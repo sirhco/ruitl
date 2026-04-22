@@ -29,6 +29,22 @@ fn bench_render(c: &mut Criterion) {
     let mut group = c.benchmark_group("Html::render");
     group.bench_function("small_10", |b| b.iter(|| small.render()));
     group.bench_function("big_1000", |b| b.iter(|| big.render()));
+    // Model the hot request-handler path: one long-lived buffer, cleared
+    // between iterations. Captures the win from `render_into`'s amortised
+    // capacity.
+    group.bench_function("render_into_reused_big_1000", |b| {
+        let mut buf = String::with_capacity(big.len_hint());
+        b.iter(|| {
+            buf.clear();
+            big.render_into(&mut buf).unwrap();
+        })
+    });
+    // Size-hint path: allocate with `len_hint()` up front, avoiding reallocs
+    // during the render. Compare against the default `render()` to decide
+    // whether to wire `len_hint` into the default path.
+    group.bench_function("render_with_capacity_big_1000", |b| {
+        b.iter(|| big.render_with_capacity(big.len_hint()))
+    });
     group.finish();
 }
 
